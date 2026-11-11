@@ -1,4 +1,4 @@
-// Check a Private Prompt Lab receipt from scratch, no API key needed.
+// Check an Off Record receipt from scratch, no API key needed.
 // Usage: node scripts/verify-receipt.mjs web/sample-chat.json [--tamper | --swap-message] [--offline]
 //   Intel's and NVIDIA's verifiers and NEAR AI's live attestation are always asked now.
 //   --tamper        flip one byte in the encrypted reply first, to watch the check fail

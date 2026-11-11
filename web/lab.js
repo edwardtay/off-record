@@ -1,9 +1,9 @@
-/* Private Prompt Lab: a private chat with an AI model in a NEAR AI Cloud enclave. Every message is
+/* Off Record: a private chat with an AI model in a NEAR AI Cloud enclave. Every message is
    encrypted in this page to the key named in the enclave's hardware quote, every reply is signed by
    that key, and every check is shown. All checks live in engine.js, shared with the Node verifier.
    Imports carry the release tag so a deploy never mixes a cached old module with new ones. */
-import { openSession, newReceipt, sendTurn, checkTurns, turnMessages, verifyReceipt, codeChecks, fetchAttestation, privacyKind, newNonce, modelAttestation, callUsage, runAsk, NEARAI, DEFAULT_MODEL } from './engine.js?v=18';
-import { SAMPLE_ASK } from './sample.js?v=18';
+import { openSession, newReceipt, sendTurn, checkTurns, turnMessages, verifyReceipt, codeChecks, fetchAttestation, privacyKind, newNonce, modelAttestation, callUsage, runAsk, NEARAI, DEFAULT_MODEL } from './engine.js?v=19';
+import { SAMPLE_ASK } from './sample.js?v=19';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -38,40 +38,38 @@ const deps = {
   gpuUrl: new URL('verify/gpu', location.href).href,
 };
 
-/* Tabs: Chats and Models on the left; Conversation and How it is private on the right. */
-function tablist(ids, show) {
-  for (const t of ids) {
-    $(t).addEventListener('click', () => show(t));
-    $(t).addEventListener('keydown', (e) => {
-      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-      const next = ids[(ids.indexOf(t) + (e.key === 'ArrowRight' ? 1 : ids.length - 1)) % ids.length];
-      show(next); $(next).focus(); e.preventDefault();
-    });
-  }
-}
+/* Views: the chat or the models table in the main pane; the proof in a side panel; settings in a dialog. */
 function showTab(t) {
-  t = t.replace(/^tab-/, '');
-  for (const x of ['chat', 'models']) { $(`tab-${x}`).setAttribute('aria-selected', String(x === t)); $(`tab-${x}`).tabIndex = x === t ? 0 : -1; $(`p-${x}`).hidden = x !== t; }
-  $('stage-run').hidden = t === 'models'; $('stage-models').hidden = t !== 'models';
-  if (t === 'models' && !scanned) scan();
+  $('v-chat').hidden = t === 'models'; $('stage-models').hidden = t !== 'models';
+  if (t === 'models') { $('stage-title').textContent = 'Which models are private'; $('stage-sub').textContent = ''; $('verdict').hidden = true; $('demo-note').hidden = true; if (!scanned) scan(); }
+  else { $('verdict').hidden = false; }
 }
-tablist(['tab-chat', 'tab-models'], showTab);
+let lastFocus = null;
 function showView(t) {
-  t = t.replace(/^view-/, '');
-  for (const x of ['chat', 'proof']) { $(`view-${x}`).setAttribute('aria-selected', String(x === t)); $(`view-${x}`).tabIndex = x === t ? 0 : -1; $(`v-${x}`).hidden = x !== t; }
-  if (t === 'proof' && lens.browser && !lensText) playFlow();
+  const open = t === 'proof';
+  if (open && !$('proof-panel').hidden) return;
+  if (open) lastFocus = document.activeElement;
+  $('proof-panel').hidden = !open; $('scrim').hidden = !open;
+  document.body.classList.toggle('drawer-open', open);
+  if (open) { $('close-proof').focus(); if (lens.browser) playFlow(); }
+  else if (lastFocus) { lastFocus.focus?.(); lastFocus = null; }
 }
-tablist(['view-chat', 'view-proof'], showView);
+$('verdict').addEventListener('click', () => { if (chat?.rc?.turns?.length) showView('proof'); });
+$('close-proof').addEventListener('click', () => showView('chat'));
+$('scrim').addEventListener('click', () => showView('chat'));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('proof-panel').hidden) showView('chat'); });
+$('open-models').addEventListener('click', () => showTab('models'));
+function openSettings(msg = '') { $('settings-msg').textContent = msg; $('settings-msg').hidden = !msg; if (!$('settings').open) $('settings').showModal(); if (msg) $('key').focus(); }
+$('open-settings').addEventListener('click', () => openSettings());
 
 /* Settings: the key stays in memory unless "Remember on this device" is ticked. */
-const savedKey = store.get('ppl.key');
+const savedKey = store.get('offrecord.key');
 if (savedKey) { $('key').value = savedKey; $('remember').checked = true; }
-const syncKey = () => store.set('ppl.key', $('remember').checked && $('key').value.trim() ? $('key').value.trim() : null);
+const syncKey = () => store.set('offrecord.key', $('remember').checked && $('key').value.trim() ? $('key').value.trim() : null);
 $('remember').addEventListener('change', syncKey);
 $('key').addEventListener('input', () => { if ($('remember').checked) syncKey(); });
-if (!savedKey) $('settings').open = true;
-const savedModel = store.get('ppl.model');
-$('model').addEventListener('change', () => store.set('ppl.model', $('model').value));
+const savedModel = store.get('offrecord.model');
+$('model').addEventListener('change', () => store.set('offrecord.model', $('model').value));
 
 /* Private models scan */
 let scanned = false;
@@ -234,7 +232,7 @@ $('starters').addEventListener('click', (e) => {
 const DB = {
   db: null,
   open() {
-    if (!this.db) this.db = new Promise((ok, no) => { const r = indexedDB.open('private-prompt-lab', 1); r.onupgradeneeded = () => r.result.createObjectStore('chats', { keyPath: 'id' }); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
+    if (!this.db) this.db = new Promise((ok, no) => { const r = indexedDB.open('off-record', 1); r.onupgradeneeded = () => r.result.createObjectStore('chats', { keyPath: 'id' }); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
     return this.db;
   },
   async run(mode, fn) { const db = await this.open(); return new Promise((ok, no) => { const t = db.transaction('chats', mode); const req = fn(t.objectStore('chats')); t.oncomplete = () => ok(req?.result); t.onerror = () => no(t.error); t.onabort = () => no(t.error); }); },
@@ -247,11 +245,13 @@ async function renderChatList() {
   const all = await DB.all();
   if (all === null) { $('chat-list').innerHTML = '<li class="muted">This browser blocks storage, so chats are not saved.</li>'; return; }
   all.sort((a, b) => b.updated.localeCompare(a.updated));
-  $('chat-list').innerHTML = all.length ? all.map((c) => `<li class="${chat?.id === c.id ? 'on' : ''}"><button type="button" class="chat-open" data-id="${esc(c.id)}"><b>${esc(c.title)}</b><span class="sub">${esc(new Date(c.updated).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))} · ${c.rc.turns.length} message${c.rc.turns.length === 1 ? '' : 's'}</span></button><button type="button" class="link chat-del" data-del="${esc(c.id)}" aria-label="Delete this chat">Delete</button></li>`).join('') : '<li class="muted">None yet.</li>';
+  const demoLi = `<li class="${chat?.id === 'demo' ? 'on' : ''}"><button type="button" class="chat-open" data-demo="1"><b>Demo: a private health question</b><span class="sub">Recorded, checked live</span></button></li>`;
+  $('chat-list').innerHTML = demoLi + (all.length ? all.map((c) => `<li class="${chat?.id === c.id ? 'on' : ''}"><button type="button" class="chat-open" data-id="${esc(c.id)}"><b>${esc(c.title)}</b><span class="sub">${esc(new Date(c.updated).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))} </span></button><button type="button" class="link chat-del" data-del="${esc(c.id)}" aria-label="Delete this chat">Delete</button></li>`).join('') : '<li class="muted">Your chats appear here, saved only in this browser.</li>');
 }
 $('chat-list').addEventListener('click', async (e) => {
   const d = e.target.closest('[data-del]');
   if (d) { if (!confirm('Delete this chat from this browser? This cannot be undone.')) return; await DB.del(d.dataset.del); if (chat?.id === d.dataset.del) startChat(); renderChatList(); return; }
+  if (e.target.closest('[data-demo]') && !sending) { loadDemo(); return; }
   const o = e.target.closest('[data-id]');
   if (o && !sending) { const all = await DB.all(); const c = (all || []).find((x) => x.id === o.dataset.id); if (c) openSaved(c); }
 });
@@ -266,12 +266,12 @@ function userHtml(text) {
   return `${body ? `<div class="utext">${esc(body)}</div>` : ''}${files.map(([n, t]) => `<details class="afile"><summary>File: ${esc(n)} <span class="sub">${fmt(t.length)} characters</span></summary><pre>${esc(t)}</pre></details>`).join('')}`;
 }
 function badge(t, i) {
-  if (!t) return '<span class="pill mid">Checking</span>';
-  return `<button type="button" class="pill ${t.ok ? 'ok' : 'bad'} vbtn" data-turn="${i}" data-tip="${t.ok ? 'Signed by the key in the enclave\'s hardware proof, over the exact encrypted bytes; your message went out encrypted to that key. Click for the proof.' : 'This reply did not pass every check. Click for details.'}">${t.ok ? 'Verified' : 'Not verified'}</button>`;
+  if (!t) return '<span class="vbtn">Checking</span>';
+  return `<button type="button" class="vbtn ${t.ok ? 'ok' : 'bad'}" data-turn="${i}" data-tip="${t.ok ? 'Signed by the enclave\'s key over the exact encrypted bytes. Click for the proof.' : 'This reply failed a check. Click for details.'}">${t.ok ? 'Verified' : 'Not verified'}</button>`;
 }
 function renderThread() {
   const th = $('thread');
-  if (!chat?.rc?.turns?.length && !chat?.pending) { th.innerHTML = `<div class="empty">${chat?.demo ? '' : '<b>A private chat.</b> Before your first message leaves, this page checks the enclave\'s hardware proof. Then every message is encrypted here to the key in that proof, and every reply comes back signed by it.'}</div>`; renderStarters(); return; }
+  if (!chat?.rc?.turns?.length && !chat?.pending) { th.innerHTML = chat?.demo ? '' : `<div class="empty"><span class="logo big"><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg></span><h2>What do you want to keep off the record?</h2><p>Only a sealed chip can read this chat. Every reply is checked before you see it.</p></div>`; renderStarters(); return; }
   const rows = [];
   const turns = chat.rc?.turns || [];
   turns.forEach((m, i) => {
@@ -301,11 +301,11 @@ $('thread').addEventListener('click', (e) => { const b = e.target.closest('.vbtn
 function startChat() {
   if (sending) return;
   opId++;
-  chat = { id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, title: 'New private chat', rc: null, session: null, view: null, demo: false };
+  chat = { id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, title: 'New chat', rc: null, session: null, view: null, demo: false };
   current = null; lens = {}; lensText = ''; lensTurn = null;
   if ($('system').disabled) $('system').value = '';
   $('demo-note').hidden = true; $('system').disabled = false; $('system-hint').textContent = '';
-  $('stage-title').textContent = 'New private chat'; $('verdict').className = 'vbadge'; $('verdict').textContent = 'Not started';
+  $('stage-title').textContent = 'New chat'; $('stage-sub').textContent = ''; $('verdict').className = 'status idle'; $('verdict').textContent = '';
   gate({}, 'Nothing sent yet. The enclave is checked before your first message leaves.');
   $('code-card').hidden = true; $('proof').innerHTML = ''; $('sigs-t').tBodies[0].innerHTML = ''; $('break-out').innerHTML = '';
   fail(''); showTab('chat'); showView('chat'); renderThread(); renderChatList(); $('msg').focus();
@@ -317,8 +317,8 @@ async function openReceipt(rc, { id, title, demo = false, note = '' } = {}) {
   const op = ++opId;
   chat = { id: id || `c${Date.now().toString(36)}`, title: title || note || 'Receipt', rc, session: null, view: null, demo };
   current = null; lens = {}; lensText = ''; lensTurn = null;
-  $('demo-note').hidden = !demo; $('demo-note').innerHTML = demo ? 'A recorded chat about a made-up patient, checked again live as this page loads. <b>New private chat</b> starts your own.' : '';
-  $('stage-title').textContent = chat.title; $('verdict').className = 'vbadge'; $('verdict').textContent = 'Checking';
+  $('demo-note').hidden = !demo; showTab('chat');
+  $('stage-title').textContent = chat.title; $('stage-sub').textContent = ''; $('verdict').className = 'status'; $('verdict').textContent = 'Checking';
   fail(''); gate({}, 'Checking the recorded chat with Intel, NVIDIA and NEAR AI.');
   if (!demo) { $('system').value = rc.system || ''; $('system').disabled = true; $('system-hint').textContent = 'Fixed for this chat: every turn is checked against it.'; }
   else { $('system').disabled = false; $('system-hint').textContent = ''; }
@@ -332,7 +332,7 @@ async function openReceipt(rc, { id, title, demo = false, note = '' } = {}) {
     chat.view = v; render(v, note);
   } catch (e) {
     if (op !== opId) return;
-    fail(e.message); $('verdict').textContent = 'Not checked'; $('verdict').className = 'vbadge bad'; renderThread();
+    fail(e.message); $('verdict').textContent = 'Not checked'; $('verdict').className = 'status bad'; renderThread();
   }
   renderChatList();
 }
@@ -340,29 +340,36 @@ const openSaved = (c) => { showTab('chat'); showView('chat'); openReceipt(c.rc, 
 $('receipt-file').addEventListener('change', async (ev) => {
   const f = ev.target.files[0]; if (!f) return; ev.target.value = '';
   let rc; try { rc = JSON.parse(await f.text()); } catch { fail('That file is not valid JSON.'); return; }
-  if (!rc?.attestation || !Array.isArray(rc.calls)) { fail('That file is not a Private Prompt Lab receipt.'); return; }
+  if (!rc?.attestation || !Array.isArray(rc.calls)) { fail('That file is not an Off Record receipt.'); return; }
   openReceipt(rc, { title: `Receipt ${f.name}`, note: `Receipt ${f.name}` });
 });
 
+function setSending(on) {
+  $('send').innerHTML = `<svg class="ic" aria-hidden="true"><use href="#${on ? 'i-stop' : 'i-send'}"/></svg><span id="send-label" class="sr">${on ? 'Stop' : 'Send'}</span>`;
+  $('send').setAttribute('aria-label', on ? 'Stop the reply' : 'Send'); $('send').classList.toggle('stop', on);
+}
+/* The message box grows with its text, up to a limit. */
+function grow() { const t = $('msg'); t.style.height = 'auto'; t.style.height = `${Math.min(t.scrollHeight, 220)}px`; }
+$('msg').addEventListener('input', grow);
 /* Send one message: check the enclave first if this chat has no live session, then stream the reply. */
 async function send() {
   if (sending) { sending.abort(); return; }
   const text = $('msg').value.trim();
   if (!text && !attachments.length) return;
   const key = $('key').value.trim();
-  if (!key) { $('settings').open = true; $('key').focus(); fail('Add your NEAR AI key under Key and model to send. The demo chat needs none.'); return; }
+  if (!key) { openSettings('Add a NEAR AI key to send. It goes only to NEAR AI.'); return; }
   if (!chat || chat.demo || (chat.rc && chat.rc.model !== $('model').value && !chat.rc.turns.length)) startChat();
   if (chat.rc && chat.rc.model !== $('model').value) { fail(`This chat runs on ${chat.rc.model}. Start a new chat to use ${$('model').value}.`); return; }
   fail('');
   const message = text + attachments.map(attachBlock).join('');
   const op = opId;
   sending = new AbortController();
-  $('send-label').textContent = 'Stop'; $('msg').value = ''; const sentFiles = attachments; attachments = []; renderAttachments();
+  setSending(true); $('msg').value = ''; grow(); const sentFiles = attachments; attachments = []; renderAttachments();
   chat.pending = { message, text: '', status: chat.session ? 'Encrypting to the enclave key' : 'Checking the enclave before anything is sent' };
   renderThread();
   try {
     if (!chat.session) {
-      $('verdict').className = 'vbadge'; $('verdict').textContent = 'Checking';
+      $('verdict').className = 'status'; $('verdict').textContent = 'Checking';
       const session = await openSession({ model: $('model').value, onStep: (id, msg) => { onStep(id, msg); chat.pending.status = msg; renderThread(); } }, deps);
       if (op !== opId) return;
       if (chat.rc && signerOf(chat.rc) !== session.signer) throw new Error('The enclave has a new key since this chat started, so it cannot continue. Start a new chat.');
@@ -378,7 +385,7 @@ async function send() {
     const last = chat.rc.calls.find((c) => c.role === `turn-${chat.rc.turns.length - 1}`);
     if (last?.stopped) {
       const i = chat.rc.turns.length - 1; chat.rc.turns.pop(); chat.rc.calls = chat.rc.calls.filter((c) => !c.role.endsWith(`-${i}`));
-      chat.pending = null; $('msg').value = text; attachments = sentFiles; renderAttachments();
+      chat.pending = null; $('msg').value = text; grow(); attachments = sentFiles; renderAttachments();
       fail('Stopped. Nothing from that reply was kept, and your message is back in the box.');
     } else {
       chat.pending = null;
@@ -392,12 +399,12 @@ async function send() {
     }
   } catch (e) {
     if (op !== opId) return;
-    chat.pending = null; $('msg').value = text; attachments = sentFiles; renderAttachments();
+    chat.pending = null; $('msg').value = text; grow(); attachments = sentFiles; renderAttachments();
     gate({}, ''); fail(e.message);
-    if (!chat.rc?.turns?.length) { $('verdict').textContent = 'Stopped'; $('verdict').className = 'vbadge bad'; }
+    if (!chat.rc?.turns?.length) { $('verdict').textContent = 'Not sent'; $('verdict').className = 'status'; }
   } finally {
-    if (op === opId) { sending = null; $('send-label').textContent = 'Send'; renderThread(); }
-    else sending = null;
+    if (op === opId) { sending = null; setSending(false); renderThread(); }
+    else { sending = null; setSending(false); }
   }
 }
 $('composer').addEventListener('submit', (e) => { e.preventDefault(); send(); });
@@ -544,16 +551,16 @@ function render(v, note) {
   current = v;
   const rc = chat.rc;
   const vd = $('verdict');
-  vd.className = `vbadge ${v.ok ? 'ok' : 'bad'}`;
-  vd.textContent = v.ok ? 'VERIFIED' : 'NOT VERIFIED';
-  const why = v.ok ? '' : v.unreachable ? ' · a verifier could not be reached, press Check again' : '';
-  $('stage-title').textContent = `${chat.title} · ${rc.model} · ${new Date(rc.created).toUTCString().slice(5, 22)} UTC${why}`;
-  gate(gateFrom(v), v.ok ? `All six checks passed, for ${rc.turns.length === 1 ? 'the message' : `all ${rc.turns.length} messages`}.` : 'A check failed. Details under How it is private.', !chat.animated);
+  vd.className = `status ${v.ok ? 'ok' : 'bad'}`;
+  vd.textContent = v.ok ? 'Verified' : v.unreachable ? 'Not verified: a check could not run' : 'Not verified';
+  $('stage-title').textContent = chat.title;
+  $('stage-sub').textContent = `${rc.model} · ${new Date(rc.created).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`;
+  gate(gateFrom(v), v.ok ? `All six checks passed, for ${rc.turns.length === 1 ? 'the message' : `all ${rc.turns.length} messages`}.` : 'A check failed. Details below.', !chat.animated);
   chat.animated = true;
   lens = lensData(rc, v, lensTurn);
   meter(rc, v);
   costLine(rc);
-  if (!$('v-proof').hidden) playFlow(); else lensText = '';
+  if (!$('proof-panel').hidden) playFlow(); else lensText = '';
   $('break-out').innerHTML = '';
   const rows = [...v.att.rows, ...v.structure];
   $('proof').innerHTML = rows.map((r) => `<li>${pill(r.ok)}<div>${esc(r.label)}<div class="why">${esc(r.detail)}</div></div></li>`).join('');
@@ -652,16 +659,17 @@ $('download').addEventListener('click', () => {
   if (!confirm('This receipt contains the secrets that open its messages. Anyone you give it to can read the whole chat. Download it?')) return;
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(chat.rc)], { type: 'application/json' }));
-  a.download = `private-chat-receipt-${chat.rc.created.slice(0, 19).replace(/[:T]/g, '-')}.json`;
+  a.download = `off-record-receipt-${chat.rc.created.slice(0, 19).replace(/[:T]/g, '-')}.json`;
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 
 /* First view: a real recorded chat, checked live, before any input. */
-(async () => {
-  renderChatList();
-  try { const rc = await (await timedFetch('sample-chat.json')).json(); await openReceipt(rc, { id: 'demo', title: 'Demo: a private health question', demo: true, note: 'Recorded demo' }); }
+let demoRc = null;
+async function loadDemo() {
+  try { demoRc = demoRc || await (await timedFetch('sample-chat.json')).json(); await openReceipt(structuredClone(demoRc), { id: 'demo', title: 'Demo: a private health question', demo: true, note: 'Recorded demo' }); }
   catch (e) { fail(`Could not load the demo: ${e.message}`); }
-})();
+}
+renderChatList(); loadDemo();
 
 /* Tooltips: any [data-tip] element. Hover or focus shows it; tapping an (i) toggles it. Kept inside the viewport. */
 const tipBox = Object.assign(document.createElement('div'), { id: 'tipbox', className: 'tipbox', hidden: true });
@@ -691,3 +699,7 @@ document.addEventListener('click', (e) => {
 }, true);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTip(); });
 window.addEventListener('scroll', hideTip, { passive: true });
+
+/* Phones: the chat list folds into the top bar. */
+$('side-toggle').addEventListener('click', () => { const s = document.querySelector('.side'); const open = !s.classList.contains('open'); s.classList.toggle('open', open); $('side-toggle').setAttribute('aria-expanded', String(open)); });
+document.querySelector('.side').addEventListener('click', (e) => { if (e.target.closest('.chat-open, #new-chat') && window.matchMedia('(max-width:860px)').matches) { document.querySelector('.side').classList.remove('open'); $('side-toggle').setAttribute('aria-expanded', 'false'); } });

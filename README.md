@@ -1,4 +1,4 @@
-# Private Prompt Lab
+# Off Record
 
 A private AI chat with proof on every reply. Before your first message leaves, the page checks the model's enclave on NEAR AI Cloud (Intel TDX and NVIDIA confidential GPUs). Then every message is encrypted in the browser to the key inside the enclave's hardware quote, every reply streams back encrypted to the page, and each one is checked against the enclave's signature before it gets its **Verified** badge.
 
@@ -6,7 +6,7 @@ A private AI chat with proof on every reply. Before your first message leaves, t
 - **History stays on your device.** Chats are kept in the browser (IndexedDB) and never reach a server. Each saved chat is a full receipt, so opening it re-checks every proof.
 - **Proof that holds up.** The full Intel DCAP check, NVIDIA's GPU tokens and every reply signature are verified in the page. Turn 2 is checked to have carried exactly turn 1 and its signed reply, so the conversation shown is the conversation the enclave saw.
 
-**Live:** https://prompt20.com/tools/private-prompt/
+**Live:** https://prompt20.com/tools/off-record/
 
 ## Who can read your messages
 
@@ -81,7 +81,7 @@ Things we hit while building, in case they help:
 
 ## Try it
 
-**No key needed:** open https://prompt20.com/tools/private-prompt/. It re-checks a recorded private question as it loads: the six gate steps tick green, then an animation follows the message from your browser (plaintext) through NEAR AI's gateway (the real ciphertext) into the enclave. Click any party to see exactly what it sees. Click a reply's **Verified** badge for its proof, and press the five **Try to break it** buttons. **New private chat** starts your own.
+**No key needed:** open https://prompt20.com/tools/off-record/. It re-checks a recorded private question as it loads: the six gate steps tick green, then an animation follows the message from your browser (plaintext) through NEAR AI's gateway (the real ciphertext) into the enclave. Click any party to see exactly what it sees. Click a reply's **Verified** badge for its proof, and press the five **Try to break it** buttons. **New private chat** starts your own.
 
 **Your own message:** get a NEAR AI key at https://cloud.near.ai ($10 free credits at https://nearbuilders.org/join), open **Key and model**, paste the key (kept in memory unless you tick Remember on this device), pick a starter or type, and send. Watch the gate: "Nothing sent yet" until the enclave checks pass.
 
@@ -97,7 +97,7 @@ npm test                # 25 offline tests, run in CI: the recorded run, the att
 npm run verify          # the recorded two-turn chat, no key: asks Intel, NVIDIA and NEAR AI now
 npm run tamper          # flip one byte in the reply first: prints NOT VERIFIED and exits 1
 npm run swap-message    # rewrite the message in the receipt: NOT VERIFIED
-npm start               # the page at http://localhost:8787/tools/private-prompt/
+npm start               # the page at http://localhost:8787/tools/off-record/
 NEARAI_KEY=sk-... npm run capture   # record a new two-turn chat into web/sample-chat.json
 ```
 
@@ -118,7 +118,7 @@ NEARAI_KEY=sk-... npm run capture   # record a new two-turn chat into web/sample
 | [`scripts/verify-receipt.mjs`](scripts/verify-receipt.mjs) | Command-line receipt checker. |
 | [`test/engine.test.mjs`](test/engine.test.mjs), [`test/fixtures`](test/fixtures) | Offline tests, run in CI on every push: the recorded run verifies; tampered replies, swapped keys, forged and replayed quotes, edited deploy logs and compose files, and edited or stale Intel collateral are refused. |
 | [`scripts/serve.mjs`](scripts/serve.mjs) | Local server with the same verifier pass-through as production. |
-| [`nginx/private-prompt.conf`](nginx/private-prompt.conf) | The production pass-through: four fixed Intel PCS paths (GET only) and NVIDIA's verifier, rate limited. |
+| [`nginx/off-record.conf`](nginx/off-record.conf) | The production pass-through: four fixed Intel PCS paths (GET only) and NVIDIA's verifier, rate limited. |
 
 **Where your data goes.** The browser calls `cloud-api.near.ai` directly (NEAR AI allows prompt20.com cross-origin), so prompt20.com never receives your key or your prompt, and every message is encrypted before it leaves the page. Open the browser's network tab during a run: the chat request bodies are hex ciphertext. In our test, none of the 9 request bodies contained any of the prompt's text. The page's Content-Security-Policy limits connections to NEAR AI, NVIDIA, GitHub's raw files (for NEAR AI's public deploy files) and prompt20's own pages and data API, so a reviewer can confirm this in the page source. Intel's PCS and NVIDIA's verifier send no CORS headers, so only public evidence goes through a pass-through on prompt20.com: Intel's collateral (fetched by FMSPC, no quote sent) and the GPU evidence, neither of which contains a prompt.
 

@@ -1,4 +1,4 @@
-/* Private Prompt Lab engine: sends a message privately to a NEAR AI Cloud enclave and checks
+/* Off Record engine: sends a message privately to a NEAR AI Cloud enclave and checks
    every piece of evidence. Plain ES module with no imports, so the browser page and the
    Node scripts (verify-receipt.mjs, capture-sample.mjs) share the exact same checks.
    Hashing uses globalThis.crypto.subtle (browsers, Node 20+). Every chat call is end-to-end
@@ -477,7 +477,7 @@ export async function openSession({ model = DEFAULT_MODEL, onStep = () => {} }, 
 }
 
 /** A new, empty receipt for a session. Turns are appended as they are sent. */
-export const newReceipt = (session, system = '') => ({ version: RECEIPT_VERSION, kind: 'chat', tool: 'https://prompt20.com/tools/private-prompt/', created: new Date().toISOString(), model: session.model, nonce: session.nonce, attestation: session.attestation, system, turns: [], calls: [] });
+export const newReceipt = (session, system = '') => ({ version: RECEIPT_VERSION, kind: 'chat', tool: 'https://prompt20.com/tools/off-record/', created: new Date().toISOString(), model: session.model, nonce: session.nonce, attestation: session.attestation, system, turns: [], calls: [] });
 
 /** The messages turn i sends: the instructions, every earlier turn with its signed reply, then this message. */
 export function turnMessages(system, turns, replies, i) {

@@ -1,19 +1,19 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloud-api.near.ai https://nras.attestation.nvidia.com https://raw.githubusercontent.com https://data.prompt20.com; form-action 'none'; base-uri 'self'">
-<title>Private Prompt Lab: verifiable private AI in a TEE | Prompt20</title>
+<title>Off Record: a private AI chat with proof | Prompt20</title>
 <meta name="description" content="A private AI chat that only a sealed GPU enclave on NEAR AI Cloud can read. Every message is encrypted in your browser and every reply is verified: Intel TDX, NVIDIA and a signature on each answer.">
-<link rel="canonical" href="https://prompt20.com/tools/private-prompt/"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<meta property="og:title" content="Private Prompt Lab | Prompt20"><meta property="og:description" content="A private AI chat with proof on every reply: encrypted in your browser to a sealed enclave on NEAR AI Cloud, history kept only on your device."><meta property="og:type" content="website"><meta property="og:url" content="https://prompt20.com/tools/private-prompt/"><meta property="og:image" content="https://prompt20.com/og.png?v=2"><meta property="og:site_name" content="Prompt20"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://prompt20.com/og.png?v=2">
+<link rel="canonical" href="https://prompt20.com/tools/off-record/"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="Off Record | Prompt20"><meta property="og:description" content="A private AI chat with proof on every reply: encrypted in your browser to a sealed enclave on NEAR AI Cloud, history kept only on your device."><meta property="og:type" content="website"><meta property="og:url" content="https://prompt20.com/tools/off-record/"><meta property="og:image" content="https://prompt20.com/og.png?v=2"><meta property="og:site_name" content="Prompt20"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://prompt20.com/og.png?v=2">
 <meta name="author" content="Edward Tay">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=14">
-<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Prompt20","item":"https://prompt20.com/"},{"@type":"ListItem","position":2,"name":"Tools","item":"https://prompt20.com/tools/"},{"@type":"ListItem","position":3,"name":"Private Prompt Lab","item":"https://prompt20.com/tools/private-prompt/"}]},{"@type":"WebApplication","name":"Private Prompt Lab","url":"https://prompt20.com/tools/private-prompt/","applicationCategory":"DeveloperApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Send a sensitive prompt to an AI model in a NEAR AI Cloud TEE, encrypted in the browser to the key in its Intel TDX quote, and verify the TDX quote, NVIDIA GPU attestation and every signed reply in the browser.","author":{"@type":"Person","name":"Edward Tay"}}]}</script>
-<script type="module" src="lab.js?v=18"></script>
+<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=15">
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Prompt20","item":"https://prompt20.com/"},{"@type":"ListItem","position":2,"name":"Tools","item":"https://prompt20.com/tools/"},{"@type":"ListItem","position":3,"name":"Off Record","item":"https://prompt20.com/tools/off-record/"}]},{"@type":"WebApplication","name":"Off Record","url":"https://prompt20.com/tools/off-record/","applicationCategory":"DeveloperApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Send a sensitive prompt to an AI model in a NEAR AI Cloud TEE, encrypted in the browser to the key in its Intel TDX quote, and verify the TDX quote, NVIDIA GPU attestation and every signed reply in the browser.","author":{"@type":"Person","name":"Edward Tay"}}]}</script>
+<script type="module" src="lab.js?v=19"></script>
 </head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-<symbol id="i-lab" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><path d="M8.5 15.5h2M12 15.5h3.5M8.5 18h5"/></symbol>
+<symbol id="i-lab" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h14a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5h-7l-5 4v-4H5A2.5 2.5 0 0 1 2.5 15V6A2.5 2.5 0 0 1 5 3.5z"/><rect x="8.75" y="9.75" width="6.5" height="4.75" rx="1"/><path d="M10.25 9.75V8.5a1.75 1.75 0 0 1 3.5 0v1.25"/></symbol>
 <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4"/><path d="M10.5 12.5L20 3M16 7l3 3M14 9l2 2"/></symbol>
 <symbol id="i-chip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2.5V6M15 2.5V6M9 18v3.5M15 18v3.5M2.5 9H6M2.5 15H6M18 9h3.5M18 15h3.5"/><path d="M10 12l1.5 1.5L14.5 10"/></symbol>
 <symbol id="i-doc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
@@ -22,6 +22,10 @@
 <symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4.5v15l12-7.5z"/></symbol>
 <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5"/><path d="M3 16.5l9 4.5 9-4.5"/></symbol>
 <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+<symbol id="i-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="1.5"/></symbol>
+<symbol id="i-clip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/></symbol>
 </svg>
 <header class="site-header"><div class="site-brand">
     <div class="site-brand-inner">
@@ -46,57 +50,55 @@
   </nav>
 </header>
 
-<main id="main">
-<section class="sp-hero" aria-label="Private Prompt Lab">
-  <div class="sp-intro">
-    <p class="sp-crumb"><a href="/tools/">Tools</a> / Private Prompt Lab</p>
-    <div class="sp-top"><span class="sp-icon"><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg></span><h1>Private Prompt Lab</h1></div>
-    <p class="sp-lede">A private AI chat only a sealed chip can read, with proof on every reply. <button type="button" class="itip" data-tip="Your browser checks the chip's hardware proof (Intel and NVIDIA), encrypts the message to the key inside that proof, and verifies the chip's signature on the reply. NEAR AI's servers only relay ciphertext." aria-label="What is this?">i</button></p>
-  </div>
+<main id="main" class="or">
+<div class="app">
+  <aside class="side" aria-label="Chats">
+    <div class="brand"><span class="logo"><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg></span><h1>Off Record</h1><button type="button" class="side-toggle" id="side-toggle" aria-expanded="false" aria-controls="side-more">Chats</button><button type="button" class="itip" data-tip="Your browser checks the chip's hardware proof (Intel and NVIDIA), encrypts the message to the key inside that proof, and verifies the chip's signature on the reply. NEAR AI's servers only relay ciphertext." aria-label="What is this?">i</button></div>
+    <button type="button" class="new" id="new-chat"><svg class="ic sm" aria-hidden="true"><use href="#i-plus"/></svg>New chat</button>
+    <div class="side-more" id="side-more">
+    <ul id="chat-list" class="chat-list" aria-label="Chats, saved in this browser only"></ul>
+    <div class="side-foot">
+      <button type="button" class="side-link" id="open-settings"><svg class="ic sm" aria-hidden="true"><use href="#i-key"/></svg>Key and model</button>
+      <button type="button" class="side-link" id="open-models"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg>Which models are private</button>
+      <label class="side-link file"><svg class="ic sm" aria-hidden="true"><use href="#i-doc"/></svg>Open a receipt<input type="file" id="receipt-file" accept="application/json,.json"></label>
+    </div>
+    </div>
+  </aside>
 
-  <div class="sp-ctrl">
-    <div class="sp-seg" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" id="tab-chat" aria-controls="p-chat" aria-selected="true">Chats</button>
-      <button type="button" role="tab" id="tab-models" aria-controls="p-models" aria-selected="false" tabindex="-1">Models</button>
+  <section class="pane" aria-label="Conversation">
+    <header class="bar">
+      <div class="bar-t"><span id="stage-title" class="title">Off Record</span><span id="stage-sub" class="sub"></span></div>
+      <span id="demo-note" class="tag" hidden data-tip="A recorded chat about a made-up patient, checked again live as this page loads. New chat starts your own.">Demo</span>
+      <button type="button" id="verdict" class="status" aria-haspopup="dialog" aria-controls="proof-panel">Checking</button>
+    </header>
+
+    <div id="v-chat" class="chatwrap">
+      <div class="thread" id="thread" tabindex="0" aria-label="Messages"></div>
+      <div class="starters" id="starters" hidden></div>
+      <p id="run-error" class="err" role="alert" hidden></p>
+      <form class="composer" id="composer">
+        <div id="attach-list" class="attach-list"></div>
+        <div class="composer-row">
+          <label class="icon-btn file" data-tip="Attach a PDF or text file. It is read here and sent encrypted, like the message." aria-label="Attach a file"><svg class="ic" aria-hidden="true"><use href="#i-clip"/></svg><input type="file" id="attach" multiple accept=".txt,.md,.csv,.json,.pdf,text/plain,text/markdown,text/csv,application/json,application/pdf"></label>
+          <textarea id="msg" rows="1" spellcheck="true" aria-label="Your message" placeholder="Message privately"></textarea>
+          <button type="submit" class="send" id="send" aria-label="Send"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg><span id="send-label" class="sr">Send</span></button>
+        </div>
+      </form>
+      <p class="fine">Encrypted to a sealed chip before it leaves. Saved only in this browser.</p>
     </div>
 
-    <div id="p-chat" role="tabpanel" aria-labelledby="tab-chat" class="panel-in">
-      <button type="button" class="sp-cta" id="new-chat"><svg class="ic sm" aria-hidden="true"><use href="#i-lab"/></svg>New private chat</button>
-      <p class="hint list-h">Saved in this browser only <button type="button" class="itip" data-tip="Chats stay in this browser (IndexedDB) and never reach a server. Each one is a full receipt: opening it checks every proof again. Delete any of them here." aria-label="What is this?">i</button></p>
-      <ul id="chat-list" class="chat-list" aria-label="Saved chats"></ul>
-      <details class="set" id="settings">
-        <summary><svg class="ic sm" aria-hidden="true"><use href="#i-key"/></svg>Key and model</summary>
-        <label class="cf"><span class="lbl">NEAR AI key</span>
-          <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-...">
-          <span class="hint"><label class="chk"><input type="checkbox" id="remember"> Remember on this device</label> · <a href="https://cloud.near.ai" target="_blank" rel="noopener">Get a key</a> · <a href="https://nearbuilders.org/join" target="_blank" rel="noopener">$10 free credits</a></span>
-        </label>
-        <label class="cf" for="model"><span class="lbl">Enclave model</span>
-          <select id="model"><option>Qwen/Qwen3.8-27B</option><option>Qwen/Qwen3.6-35B-A3B-FP8</option><option>Qwen/Qwen3-VL-30B-A3B-Instruct</option><option>deepseek-ai/DeepSeek-V4.1-Flash-1017</option><option>z-ai/glm-5.3-flash</option><option>Qwen/Qwen3.8-27B-abliterated</option><option>deepseek-ai/DeepSeek-V4.1-Flash-1017-abliterated</option></select>
-          <span class="hint" id="model-hint">Private models only. <button type="button" class="itip" data-tip="Only 12 of NEAR AI's 63 models run in their own TEE (a sealed enclave). The rest, including Claude, GPT and Gemini, go to outside providers. The Models tab checks each one live." aria-label="What is this?">i</button></span>
-        </label>
-        <label class="cf" for="system"><span class="lbl">Instructions <span class="sub">optional</span></span>
-          <textarea id="system" rows="3" spellcheck="false" placeholder="How the assistant should behave in new chats"></textarea>
-          <span class="hint" id="system-hint"></span>
-        </label>
-      </details>
-      <details class="more"><summary>Check a receipt file</summary><label class="sp-cta ghost file">Open a receipt file<input type="file" id="receipt-file" accept="application/json,.json"></label></details>
-    </div>
-
-    <div id="p-models" role="tabpanel" aria-labelledby="tab-models" class="panel-in" hidden>
-      <p class="hint">Which models run in a sealed chip? <button type="button" class="itip" data-tip="Asks NEAR AI for every model's hardware proof, live, with no key. Models at outside providers have none." aria-label="What is this?">i</button></p>
-      <button type="button" class="sp-cta" id="scan"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg>Check every model now</button>
-    </div>
-  </div>
-
-  </div>
-
-  <div class="sp-stage">
-    <div id="stage-run">
-      <h2 class="sp-k"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg><span id="stage-title">Checking a recorded run</span><span class="grow"></span><span id="verdict" class="vbadge">Checking</span></h2>
-      <div class="sp-seg small views" role="tablist" aria-label="View">
-        <button type="button" role="tab" id="view-chat" aria-controls="v-chat" aria-selected="true">Conversation</button>
-        <button type="button" role="tab" id="view-proof" aria-controls="v-proof" aria-selected="false" tabindex="-1">How it is private</button>
+    <div id="stage-models" class="models" hidden>
+      <div class="models-h"><h2>Which NEAR AI models are private</h2><span id="scan-sum" class="sub" role="status"></span><button type="button" class="link" id="scan">Check again</button></div>
+      <div class="scroll fillscroll" tabindex="0" role="region" aria-label="NEAR AI models by protection, scrolls">
+        <table class="tbl" id="models-t"><thead><tr><th scope="col">Model</th><th scope="col">Protection</th><th scope="col">What NEAR AI reports</th></tr></thead><tbody><tr><td colspan="3" class="muted">Press Check every model now.</td></tr></tbody></table>
       </div>
+    </div>
+  </section>
+</div>
+
+<aside id="proof-panel" class="drawer" hidden aria-labelledby="proof-h">
+  <div class="drawer-h"><h2 id="proof-h">How this chat is private</h2><button type="button" class="link" id="close-proof">Close</button></div>
+  <div class="drawer-b">
       <ol class="gate" id="gate" aria-label="Send gate">
         <li data-g="enclave" tabindex="0" data-tip="The model runs inside a sealed Intel TDX enclave with NVIDIA confidential GPUs. This page checks Intel's signature, that Intel lists the platform as up to date and not revoked, and NVIDIA's signed GPU tokens.">Real secure hardware</li>
         <li data-g="fresh" tabindex="0" data-tip="A random number made for this run is inside the hardware proof, so an old proof cannot be replayed.">Proof made for this run</li>
@@ -106,23 +108,7 @@
         <li data-g="shown" tabindex="0" data-tip="What this page shows decrypts from those signed bytes. Nothing on screen is taken on trust.">Display matches proof</li>
       </ol>
       <p id="gate-note" class="gate-note" role="status" aria-live="polite"></p>
-      <div id="v-chat" role="tabpanel" aria-labelledby="view-chat">
-        <p id="demo-note" class="demo-note" hidden></p>
-        <div class="thread" id="thread" tabindex="0" aria-label="Conversation"></div>
-        <div class="starters" id="starters" hidden></div>
-        <form class="composer" id="composer">
-          <div id="attach-list" class="attach-list"></div>
-          <textarea id="msg" rows="3" spellcheck="true" aria-label="Your message" placeholder="Message the enclave"></textarea>
-          <div class="composer-row">
-            <label class="btn ghost file" data-tip="Text, Markdown, CSV, JSON or PDF. Read in this page and sent encrypted, like the message."><svg class="ic sm" aria-hidden="true"><use href="#i-doc"/></svg>Attach<input type="file" id="attach" multiple accept=".txt,.md,.csv,.json,.pdf,text/plain,text/markdown,text/csv,application/json,application/pdf"></label>
-            <span class="hint grow" id="composer-hint">Encrypted in this page to the enclave key before it leaves.</span>
-            <button type="submit" class="sp-cta" id="send"><svg class="ic sm" aria-hidden="true"><use href="#i-play"/></svg><span id="send-label">Send</span></button>
-          </div>
-        </form>
-        <p id="run-error" class="err" role="alert" hidden></p>
-      </div>
-      <div id="v-proof" role="tabpanel" aria-labelledby="view-proof" hidden>
-      <div class="who-row"><h3 class="who-h">Who can read your prompt? <button type="button" class="itip" data-tip="Click a party to see exactly what it receives. The gateway view is the real request NEAR AI got; the standard AI API view is the same message sent the usual way." aria-label="What is this?">i</button></h3><span class="grow"></span></div>
+      <div class="who-row"><h3 class="who-h">Who can read your messages? <button type="button" class="itip" data-tip="Click a party to see exactly what it receives. The gateway view is the real request NEAR AI got; the standard AI API view is the same message sent the usual way." aria-label="What is this?">i</button></h3><span class="grow"></span></div>
       <div class="meter" id="meter">
         <div class="sens-row" id="sens-row"><span class="ml">Readable in transit <button type="button" class="itip" data-tip="Measured on the real request bytes. A second encrypted call asks the chip itself to list the sensitive items in your message; only items found verbatim count. Metadata (IP, timing, sizes, model) is visible either way." aria-label="What is this?">i</button></span><span id="sens-chips" class="chips"></span></div>
         <p class="hint cost" id="cost-line" hidden></p>
@@ -153,25 +139,12 @@
         </div>
         <ul id="break-out" class="break-out"></ul>
       </div>
-      </div>
-    </div>
-    <div id="stage-models" hidden>
-      <h2 class="sp-k"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg><span>NEAR AI Cloud models by protection</span><span class="grow"></span><span id="scan-sum" class="hint" role="status"></span></h2>
-      <div class="scroll fillscroll" tabindex="0" role="region" aria-label="NEAR AI models by protection, scrolls">
-        <table class="tbl" id="models-t"><thead><tr><th scope="col">Model</th><th scope="col">Protection</th><th scope="col">What NEAR AI reports</th></tr></thead><tbody><tr><td colspan="3" class="muted">Press Check every model now.</td></tr></tbody></table>
-      </div>
-    </div>
-  </div>
-</section>
-
-<div class="pl">
 <section class="card fold" id="code-card" aria-labelledby="code-title" hidden>
   <details><summary><h2 id="code-title"><svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg>What code is running</h2><span id="code-sum" class="pill"></span></summary>
   <p class="hint">From the chip's hardware proof down to the inference engine, each link checked here.</p>
   <ol id="code-chain" class="chain"></ol>
   </details>
 </section>
-
 <section class="card fold trust" aria-labelledby="trust-title">
   <details><summary><h2 id="trust-title"><svg class="ic" aria-hidden="true"><use href="#i-help"/></svg>What this does not protect</h2></summary>
   <ul class="plain">
@@ -181,11 +154,10 @@
     <li>CPU and GPU proofs are linked only by the shared nonce.</li>
     <li>Model weights are named by a label in NEAR AI's deploy file. The engine is pinned; the weights are not measured.</li>
     <li>One key covers all copies of a model, not one machine.</li>
-    <li>A downloaded receipt can unlock its messages. Sharing it shares the prompt.</li>
+    <li>A downloaded receipt can unlock its messages. Sharing it shares the chat.</li>
   </ul>
   </details>
 </section>
-
 <section class="card fold" id="checks-card"><details><summary><h2><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>Every check, in technical terms</h2></summary>
   <ul id="proof" class="proof"></ul>
   <div class="scroll" tabindex="0" role="region" aria-label="Reply signatures, scrolls horizontally"><table class="tbl" id="sigs-t"><thead><tr><th scope="col">Call</th><th scope="col">Signed text matches the bytes</th><th scope="col">Signer</th><th scope="col">Result</th></tr></thead><tbody></tbody></table></div>
@@ -194,12 +166,32 @@
     <button type="button" class="btn ghost" id="download"><svg class="ic sm" aria-hidden="true"><use href="#i-down"/></svg>Download the receipt</button>
   </div>
   <p class="hint" id="compose"></p>
-  <p class="hint">Check a receipt without this page: the <a href="https://github.com/edwardtay/private-prompt-lab" rel="noopener">source and a command-line verifier</a> are public, and <code>npm run verify:ask</code> re-checks the recorded question.</p>
+  <p class="hint">Check a receipt without this page: the <a href="https://github.com/edwardtay/off-record" rel="noopener">source and a command-line verifier</a> are public, and <code>npm run verify</code> re-checks the demo chat.</p>
   </details>
 </section>
+  </div>
+</aside>
+<div id="scrim" class="scrim" hidden></div>
 
-
-<footer><a href="/tools/">More Prompt20 tools</a> · <a href="/tools/cost/">AI Cost Calculator</a> · <a href="/tools/models/">Model Hub</a> · <a href="https://github.com/edwardtay/private-prompt-lab" rel="noopener">Source</a></footer>
-</div>
+<dialog id="settings" class="dlg" aria-labelledby="settings-h">
+  <form method="dialog">
+    <h2 id="settings-h">Key and model</h2>
+    <p id="settings-msg" class="err" hidden></p>
+    <label class="cf"><span class="lbl">NEAR AI key</span>
+      <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-...">
+      <span class="hint"><label class="chk"><input type="checkbox" id="remember"> Remember on this device</label> · <a href="https://cloud.near.ai" target="_blank" rel="noopener">Get a key</a> · <a href="https://nearbuilders.org/join" target="_blank" rel="noopener">$10 free credits</a></span>
+    </label>
+    <label class="cf" for="model"><span class="lbl">Model</span>
+      <select id="model"><option>Qwen/Qwen3.8-27B</option><option>Qwen/Qwen3.6-35B-A3B-FP8</option><option>Qwen/Qwen3-VL-30B-A3B-Instruct</option><option>deepseek-ai/DeepSeek-V4.1-Flash-1017</option><option>z-ai/glm-5.3-flash</option><option>Qwen/Qwen3.8-27B-abliterated</option><option>deepseek-ai/DeepSeek-V4.1-Flash-1017-abliterated</option></select>
+      <span class="hint" id="model-hint">Only models that run in their own enclave.</span>
+    </label>
+    <label class="cf" for="system"><span class="lbl">Instructions <span class="sub">optional, for new chats</span></span>
+      <textarea id="system" rows="3" spellcheck="false" placeholder="How the assistant should behave"></textarea>
+      <span class="hint" id="system-hint"></span>
+    </label>
+    <div class="dlg-b"><button class="send-txt" value="ok">Done</button></div>
+  </form>
+</dialog>
+<footer><a href="/tools/">More Prompt20 tools</a> · <a href="https://github.com/edwardtay/off-record" rel="noopener">Source</a></footer>
 </main>
 </body></html>
