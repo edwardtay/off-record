@@ -17,7 +17,7 @@ import { verifyTdxQuote, checkCollateral } from './dcap.js?v=17';
 export const NEARAI = 'https://cloud-api.near.ai/v1';
 const ALGO = 'ed25519';
 export const DEFAULT_MODEL = 'Qwen/Qwen3.8-27B';
-export const RECEIPT_VERSION = 2;
+export const RECEIPT_VERSION = 3;
 
 const SCAN_SYSTEM = [
   'Find every sensitive item in the user\'s text: person names, ages, dates of birth, contact details, addresses, ID or account numbers, health data (conditions, test results, measurements), medications, financial details, employer or school names.',
@@ -339,33 +339,81 @@ export async function codeChecks(report, nonce, model, deps, { offline = false }
   return { compose, deploy, gateway };
 }
 
-/**
- * One end-to-end encrypted chat completion, keeping the exact bytes sent and received.
- * Message contents are encrypted to `modelPub` (the key in the quote); the reply comes back
- * encrypted to a one-time client key. The receipt keeps the one-time secrets ("openings") so a
- * checker can open every field and confirm it says what the page shows.
- */
-export async function chat({ key, model, modelPub, messages, maxTokens = 1500 }, deps) {
-  const client = newClientKeys();
-  const sealed = messages.map((m) => ({ role: m.role, ...encryptTo(modelPub, m.content) }));
-  const request = JSON.stringify({ model, messages: sealed.map((m) => ({ role: m.role, content: m.hex })), temperature: 0, max_tokens: maxTokens, reasoning_effort: 'low' });
-  const r = await deps.fetch(`${NEARAI}/chat/completions`, {
-    method: 'POST', body: request,
-    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'x-signing-algo': ALGO, 'x-client-pub-key': client.publicHex, 'x-model-pub-key': modelPub, 'x-encryption-version': '2', 'x-no-aliasing': 'true' },
-  });
-  const response = await r.text();
-  if (!r.ok) throw new Error(`NEAR AI ${r.status}: ${response.slice(0, 200)}`);
-  const j = JSON.parse(response);
-  // The signature is stored a moment after the reply returns, so a 404 is retried.
+const encHeaders = (key, client, modelPub) => ({ authorization: `Bearer ${key}`, 'content-type': 'application/json', 'x-signing-algo': ALGO, 'x-client-pub-key': client.publicHex, 'x-model-pub-key': modelPub, 'x-encryption-version': '2', 'x-no-aliasing': 'true' });
+function sealMessages(modelPub, messages) { return messages.map((m) => ({ role: m.role, ...encryptTo(modelPub, m.content) })); }
+async function nearError(r) {
+  const t = await r.text().catch(() => '');
+  let msg = t.slice(0, 200); try { msg = JSON.parse(t).error?.message || msg; } catch { /* raw */ }
+  if (r.status === 401 || r.status === 403) return new Error('NEAR AI refused the key. Check it at cloud.near.ai.');
+  if (r.status === 402) return new Error('Your NEAR AI credits have run out. Top up at cloud.near.ai.');
+  if (r.status === 429) return new Error('NEAR AI is rate limiting this key. Wait a moment and send again.');
+  return new Error(`NEAR AI ${r.status}: ${msg}`);
+}
+/* The signature is stored a moment after the reply returns, so a 404 is retried. */
+async function fetchSignature(key, model, id, deps) {
   let signature = { error: 'signature not fetched' };
   for (let a = 0; a < 6; a++) {
     if (a) await new Promise((res) => setTimeout(res, 800 * a));
-    const sr = await deps.fetch(`${NEARAI}/signature/${encodeURIComponent(j.id)}?model=${encodeURIComponent(model)}&signing_algo=${ALGO}`, { headers: { authorization: `Bearer ${key}` } });
+    const sr = await deps.fetch(`${NEARAI}/signature/${encodeURIComponent(id)}?model=${encodeURIComponent(model)}&signing_algo=${ALGO}`, { headers: { authorization: `Bearer ${key}` } });
     if (sr.ok) { signature = await sr.json(); break; }
     signature = { error: `signature HTTP ${sr.status}` };
     if (sr.status !== 404) break;
   }
-  return { id: j.id, request, response, signature, e2ee: { client: client.x25519Secret, openings: sealed.map((m) => m.opening) } };
+  return signature;
+}
+
+/**
+ * One encrypted, signed call. Message contents are encrypted to `modelPub` (the key in the quote); the
+ * reply comes back encrypted to a one-time client key. The receipt keeps the one-time secrets
+ * ("openings") so a checker can confirm each field opens only with the attested key.
+ */
+export async function chat({ key, model, modelPub, messages, maxTokens = 1500 }, deps) {
+  const client = newClientKeys();
+  const sealed = sealMessages(modelPub, messages);
+  const request = JSON.stringify({ model, messages: sealed.map((m) => ({ role: m.role, content: m.hex })), temperature: 0, max_tokens: maxTokens, reasoning_effort: 'low' });
+  const r = await deps.fetch(`${NEARAI}/chat/completions`, { method: 'POST', body: request, headers: encHeaders(key, client, modelPub) });
+  if (!r.ok) throw await nearError(r);
+  const response = await r.text();
+  const j = JSON.parse(response);
+  return { id: j.id, request, response, signature: await fetchSignature(key, model, j.id, deps), e2ee: { client: client.x25519Secret, openings: sealed.map((m) => m.opening) } };
+}
+
+/**
+ * The same, streamed: each encrypted delta is decrypted as it arrives and passed to onDelta. The
+ * exact event-stream bytes are kept, because the signature covers sha256 of the whole stream.
+ * A stopped stream has no signature and is marked as such.
+ */
+export async function chatStream({ key, model, modelPub, messages, maxTokens = 4000, onDelta = () => {}, signal }, deps) {
+  const client = newClientKeys();
+  const sealed = sealMessages(modelPub, messages);
+  // No hidden reasoning: the answer starts sooner and the stream (kept whole for the signature) is
+  // about half the size. A model that refuses 'none' gets 'low' (a 400 is answered before any work).
+  const body = (effort) => JSON.stringify({ model, messages: sealed.map((m) => ({ role: m.role, content: m.hex })), stream: true, max_tokens: maxTokens, reasoning_effort: effort });
+  let request = body('none');
+  let r = await deps.fetch(`${NEARAI}/chat/completions`, { method: 'POST', body: request, headers: encHeaders(key, client, modelPub), signal });
+  if (r.status === 400) { request = body('low'); r = await deps.fetch(`${NEARAI}/chat/completions`, { method: 'POST', body: request, headers: encHeaders(key, client, modelPub), signal }); }
+  if (!r.ok) throw await nearError(r);
+  const reader = r.body.getReader(); const dec = new TextDecoder();
+  let response = ''; let pending = ''; let id = null; let stopped = false;
+  const take = (line) => {
+    if (!line.startsWith('data: ') || line === 'data: [DONE]') return;
+    const j = parse(line.slice(6)); if (!j) return;
+    id = id || j.id;
+    const c = j.choices?.[0]?.delta?.content;
+    if (c) { try { onDelta(decryptWith(client.x25519Secret, c)); } catch { /* checked again when the call is opened */ } }
+  };
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const t = dec.decode(value, { stream: true }); response += t; pending += t;
+      const lines = pending.split('\n'); pending = lines.pop();
+      lines.forEach(take);
+    }
+  } catch (e) { if (e.name === 'AbortError' || signal?.aborted) stopped = true; else throw e; }
+  response += dec.decode(); take(pending);
+  const signature = stopped || !id ? { error: stopped ? 'stopped before the end' : 'no reply id' } : await fetchSignature(key, model, id, deps);
+  return { id, request, response, signature, stopped, e2ee: { client: client.x25519Secret, openings: sealed.map((m) => m.opening) } };
 }
 
 const parse = (s) => { try { return JSON.parse(s); } catch { return null; } };
@@ -375,16 +423,25 @@ const parse = (s) => { try { return JSON.parse(s); } catch { return null; } };
  * secret against the attested model key, and the reply is decrypted with the client key; any
  * failure marks the call as not end-to-end encrypted to that key.
  */
+/** The reply's encrypted content pieces and token usage, from a JSON reply or an event stream. */
+function replyParts(text) {
+  if (/^data: /.test(String(text || ''))) {
+    const chunks = String(text).split('\n').filter((l) => l.startsWith('data: ') && l !== 'data: [DONE]').map((l) => parse(l.slice(6))).filter(Boolean);
+    return { pieces: chunks.map((c) => c.choices?.[0]?.delta?.content).filter(Boolean), usage: chunks.find((c) => c.usage)?.usage || {}, model: chunks[0]?.model };
+  }
+  const j = parse(text) || {}; const c = j.choices?.[0]?.message?.content;
+  return { pieces: c ? [c] : [], usage: j.usage || {}, model: j.model };
+}
+export const callUsage = (call) => replyParts(call?.response).usage;
 export function openCall(call, modelPub) {
   const req = parse(call?.request) || {};
-  const res = parse(call?.response) || {};
-  const msg = res.choices?.[0]?.message || {};
-  if (!call?.e2ee) return { e2ee: false, model: req.model, messages: req.messages || [], reply: (msg.content || '').trim(), tokens: res.usage?.prompt_tokens ?? null };
+  const { pieces, usage } = replyParts(call?.response);
+  if (!call?.e2ee) return { e2ee: false, model: req.model, messages: req.messages || [], reply: pieces.join('').trim(), tokens: usage.prompt_tokens ?? null };
   try {
     const messages = (req.messages || []).map((m, i) => ({ role: m.role, content: openRequestField(modelPub, call.e2ee.openings[i], m.content) }));
     if (messages.length !== (call.e2ee.openings || []).length) throw new Error('openings do not match the messages');
-    const reply = msg.content ? decryptWith(call.e2ee.client, msg.content).trim() : '';
-    return { e2ee: true, model: req.model, messages, reply, tokens: res.usage?.prompt_tokens ?? null };
+    const reply = pieces.map((p) => decryptWith(call.e2ee.client, p)).join('').trim();
+    return { e2ee: true, model: req.model, messages, reply, tokens: usage.prompt_tokens ?? null };
   } catch (e) { return { e2ee: false, broken: String(e.message || e), model: req.model, messages: [], reply: '', tokens: null }; }
 }
 
@@ -401,8 +458,11 @@ export async function checkCall(call, signer, deps) {
   return { ok: hashesOk && signerOk && attestedOk, hashesOk, signerOk, attestedOk, kind: sig.signature_kind || null, recovered };
 }
 
-/** Ask one sensitive question privately: same checks before sending, one encrypted call, a receipt. */
-export async function runAsk({ key, model = DEFAULT_MODEL, system = '', message, onStep = () => {} }, deps) {
+/**
+ * Start a verified session: a fresh attestation, checked before anything is sent. Needs no API key.
+ * Every later turn is encrypted to the key this attestation names, and every reply must be signed by it.
+ */
+export async function openSession({ model = DEFAULT_MODEL, onStep = () => {} }, deps) {
   const nonce = newNonce();
   onStep('attest', 'Asking NEAR AI for a fresh hardware attestation');
   const report = await fetchAttestation(model, nonce, deps);
@@ -412,44 +472,99 @@ export async function runAsk({ key, model = DEFAULT_MODEL, system = '', message,
   const att = await checkAttestation(report, nonce, model, await vendorChecks(modelAttestation(report, model), deps));
   const bad = att.rows.filter((r) => !r.ok);
   if (bad.length) throw new Error(`Nothing was sent: the enclave did not pass "${bad[0].label}" (${bad[0].detail}).`);
-  if (!att.ed) throw new Error('NEAR AI did not return an Ed25519 key for this model, so the message cannot be encrypted to it. Nothing was sent.');
-  onStep('send', 'Sending your message, encrypted to the enclave key');
-  const messages = [...(system.trim() ? [{ role: 'system', content: system }] : []), { role: 'user', content: message }];
-  // Two encrypted calls in parallel: the answer, and a scan that lists the sensitive items in the message.
-  const [call, scan] = await Promise.all([
-    chat({ key, model, modelPub: att.signer, maxTokens: 3000, messages }, deps),
-    chat({ key, model, modelPub: att.signer, maxTokens: 2000, messages: [{ role: 'system', content: SCAN_SYSTEM }, { role: 'user', content: message }] }, deps),
+  if (!att.ed) throw new Error('NEAR AI did not return an Ed25519 key for this model, so messages cannot be encrypted to it. Nothing was sent.');
+  return { model, nonce, attestation: report, att, signer: att.signer, at: Date.now() };
+}
+
+/** A new, empty receipt for a session. Turns are appended as they are sent. */
+export const newReceipt = (session, system = '') => ({ version: RECEIPT_VERSION, kind: 'chat', tool: 'https://prompt20.com/tools/private-prompt/', created: new Date().toISOString(), model: session.model, nonce: session.nonce, attestation: session.attestation, system, turns: [], calls: [] });
+
+/** The messages turn i sends: the instructions, every earlier turn with its signed reply, then this message. */
+export function turnMessages(system, turns, replies, i) {
+  const out = String(system || '').trim() ? [{ role: 'system', content: system }] : [];
+  for (let j = 0; j < i; j++) out.push({ role: 'user', content: turns[j] }, { role: 'assistant', content: replies[j] ?? '' });
+  out.push({ role: 'user', content: turns[i] });
+  return out;
+}
+
+/**
+ * Send one turn of a chat, appended to the receipt. The reply streams through onDelta; in parallel a
+ * second encrypted call asks the enclave to list the sensitive items in this message.
+ * `replies` are the verified replies of the earlier turns, as shown.
+ */
+export async function sendTurn({ key, session, rc, replies, message, onDelta, signal, scan = true }, deps) {
+  const i = rc.turns.length;
+  const turns = [...rc.turns, message];
+  const messages = turnMessages(rc.system, turns, replies, i);
+  const [call, scanCall] = await Promise.all([
+    chatStream({ key, model: rc.model, modelPub: session.signer, messages, onDelta, signal }, deps),
+    scan ? chat({ key, model: rc.model, modelPub: session.signer, maxTokens: 2000, messages: [{ role: 'system', content: SCAN_SYSTEM }, { role: 'user', content: message }] }, deps).catch(() => null) : null,
   ]);
-  return { version: RECEIPT_VERSION, kind: 'ask', tool: 'https://prompt20.com/tools/private-prompt/', created: new Date().toISOString(), model, nonce, attestation: report, system, message, calls: [{ ...call, role: 'ask' }, { ...scan, role: 'scan' }] };
+  rc.turns.push(message);
+  rc.calls.push({ ...call, role: `turn-${i}` });
+  if (scanCall) rc.calls.push({ ...scanCall, role: `scan-${i}` });
+  return rc;
+}
+
+/** Kept for the command line: one private question, as a one-turn chat. */
+export async function runAsk({ key, model = DEFAULT_MODEL, system = '', message, onStep = () => {} }, deps) {
+  const session = await openSession({ model, onStep }, deps);
+  onStep('send', 'Sending your message, encrypted to the enclave key');
+  return sendTurn({ key, session, rc: newReceipt(session, system), replies: [], message }, deps);
+}
+
+/* A one-question receipt from before chats ("ask") reads as a one-turn chat. */
+function asChat(rc) {
+  if (rc.kind === 'chat') return rc;
+  if (rc.kind === 'ask') return { ...rc, kind: 'chat', turns: [rc.message], calls: rc.calls.map((c) => ({ ...c, role: { ask: 'turn-0', scan: 'scan-0' }[c.role] || c.role })) };
+  throw new Error('This receipt is from the retired prompt-shortening mode. This version checks private chats only.');
+}
+
+/**
+ * Check every turn against the signer: each call is signed over its exact bytes and encrypted to the
+ * attested key; turn i sent exactly the instructions, the earlier turns and their signed replies, and
+ * this message; each scan sent only this message. No network except the signature hashes.
+ */
+export async function checkTurns(rc0, signer, deps) {
+  const rc = asChat(rc0);
+  const calls = await Promise.all(rc.calls.map(async (c) => ({ role: c.role, id: c.id, stopped: !!c.stopped, ...(await checkCall(c, signer, deps)) })));
+  const roles = rc.calls.map((c) => c.role);
+  const n = rc.turns.length;
+  const allowed = new Set(rc.turns.flatMap((_, i) => [`turn-${i}`, `scan-${i}`]));
+  const shapeOk = n > 0 && roles.every((r) => allowed.has(r)) && new Set(roles).size === roles.length && rc.turns.every((_, i) => roles.includes(`turn-${i}`));
+  const replies = []; const perTurn = []; let e2ee = rc.calls.length > 0;
+  for (let i = 0; i < n; i++) {
+    const call = rc.calls.find((c) => c.role === `turn-${i}`);
+    const o = call ? openCall(call, signer) : { e2ee: false, messages: [] };
+    const want = turnMessages(rc.system, rc.turns, replies, i);
+    const sentOk = !!call && o.model === rc.model && o.messages.length === want.length && o.messages.every((m, k) => m.role === want[k].role && m.content === want[k].content);
+    const sc = rc.calls.find((c) => c.role === `scan-${i}`);
+    const so = sc ? openCall(sc, signer) : null;
+    const scanOk = !sc || (so.e2ee && so.model === rc.model && so.messages.length === 2 && so.messages[1].content === rc.turns[i]);
+    e2ee = e2ee && !!o.e2ee && (!so || so.e2ee);
+    const sig = calls.find((c) => c.role === `turn-${i}`);
+    replies.push(o.reply);
+    perTurn.push({ reply: o.reply, sentOk, scanOk, e2ee: !!o.e2ee && (!so || so.e2ee), signed: !!sig?.ok, stopped: !!call?.stopped, sensitive: so && scanOk ? parseScan(so.reply, rc.turns[i]) : null, ok: sentOk && scanOk && !!o.e2ee && !!sig?.ok });
+  }
+  const structure = [
+    { id: 'e2ee', label: 'Every message was encrypted to the attested key', ok: e2ee, detail: `${rc.calls.length} call${rc.calls.length === 1 ? '' : 's'}: every field opens only with the key in the quote; replies only with each call's one-time key` },
+    { id: 'ask', label: 'The chat shown is the one signed', ok: shapeOk && perTurn.every((t) => t.sentOk && t.scanOk), detail: `${n} turn${n === 1 ? '' : 's'}: each sent exactly the earlier turns and their signed replies, to ${rc.model}` },
+  ];
+  const sensitive = perTurn.some((t) => t.sensitive) ? perTurn.flatMap((t) => t.sensitive || []) : null;
+  return { rc, calls, structure, perTurn, replies, sensitive };
 }
 
 /**
  * Check a receipt from scratch. Vendor verdicts are always fetched now, never read from the receipt.
  * `offline` skips the network: the verdict can then never be VERIFIED.
  */
-export async function verifyReceipt(rc, deps, { offline = false } = {}) {
-  if (rc.kind !== 'ask') throw new Error('This receipt is from the retired prompt-shortening mode. This version checks private messages only.');
+export async function verifyReceipt(rc0, deps, { offline = false } = {}) {
+  const rc = asChat(rc0);
   const m = modelAttestation(rc.attestation, rc.model);
   const [vendor, live, code] = await Promise.all(offline ? [null, null, codeChecks(rc.attestation, rc.nonce, rc.model, deps, { offline })] : [vendorChecks(m, deps), liveApp(rc.model, deps), codeChecks(rc.attestation, rc.nonce, rc.model, deps)]);
   const att = await checkAttestation(rc.attestation, rc.nonce, rc.model, vendor, live);
   if (offline) att.rows.filter((r) => r.id === 'intel' || r.id === 'nvidia').forEach((r) => { r.detail = 'not checked (offline)'; });
-
-  const calls = await Promise.all(rc.calls.map(async (c) => ({ role: c.role, id: c.id, ...(await checkCall(c, att.signer, deps)) })));
-
-  const roles = rc.calls.map((c) => c.role);
-  const shapeOk = roles[0] === 'ask' && (roles.length === 1 || (roles.length === 2 && roles[1] === 'scan'));
-  const call = shapeOk ? rc.calls[0] : null;
-  const o = call ? openCall(call, att.signer) : { messages: [] };
-  const want = [...(String(rc.system || '').trim() ? [rc.system] : []), rc.message];
-  const scanCall = shapeOk && roles[1] === 'scan' ? rc.calls[1] : null;
-  const so = scanCall ? openCall(scanCall, att.signer) : null;
-  const scanOk = !scanCall || (so.e2ee && so.model === rc.model && so.messages.length === 2 && so.messages[1].content === rc.message);
-  const sentOk = !!call && o.model === rc.model && o.messages.length === want.length && o.messages.every((m, i) => m.content === want[i]) && scanOk;
-  const sensitive = so && scanOk ? parseScan(so.reply, rc.message) : null;
-  const structure = [
-    { id: 'e2ee', label: 'The message was encrypted to the attested key', ok: !!o.e2ee && (!so || so.e2ee), detail: 'every call opens only with the key in the quote; replies only with this run\'s one-time key' },
-    { id: 'ask', label: 'The message, reply and sensitive-item scan shown are the ones signed', ok: sentOk, detail: `${rc.calls.length} signed call${rc.calls.length === 1 ? '' : 's'} to ${rc.model}` },
-  ];
-  const allOk = !offline && att.rows.every((r) => r.ok) && calls.every((c) => c.ok) && structure.every((r) => r.ok);
-  return { ok: allOk, unreachable: att.rows.some((r) => !r.ok && r.unreachable), offline, att, code, calls, structure, reply: o.reply, sensitive };
+  const t = await checkTurns(rc, att.signer, deps);
+  const allOk = !offline && att.rows.every((r) => r.ok) && t.calls.every((c) => c.ok) && t.structure.every((r) => r.ok);
+  return { ok: allOk, unreachable: att.rows.some((r) => !r.ok && r.unreachable), offline, att, code, calls: t.calls, structure: t.structure, perTurn: t.perTurn, replies: t.replies, reply: t.replies[t.replies.length - 1], sensitive: t.sensitive, rc: t.rc };
 }

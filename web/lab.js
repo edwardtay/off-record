@@ -1,11 +1,14 @@
-/* Private Prompt Lab page. All checks live in engine.js, shared with the Node verifier.
+/* Private Prompt Lab: a private chat with an AI model in a NEAR AI Cloud enclave. Every message is
+   encrypted in this page to the key named in the enclave's hardware quote, every reply is signed by
+   that key, and every check is shown. All checks live in engine.js, shared with the Node verifier.
    Imports carry the release tag so a deploy never mixes a cached old module with new ones. */
-import { runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=17';
-import { SAMPLE_ASK } from './sample.js?v=17';
+import { openSession, newReceipt, sendTurn, checkTurns, turnMessages, verifyReceipt, codeChecks, fetchAttestation, privacyKind, newNonce, modelAttestation, callUsage, runAsk, NEARAI, DEFAULT_MODEL } from './engine.js?v=18';
+import { SAMPLE_ASK } from './sample.js?v=18';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmt = (n) => (n == null || Number.isNaN(n) ? 'n/a' : Number(n).toLocaleString('en-US'));
+const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* storage blocked */ } } };
 
 /* Every request has a deadline, so a stalled service shows an error instead of spinning forever.
    Reads (GET) retry twice on a network error, 429 or 5xx; sends (POST) never retry, so a message is
@@ -35,25 +38,40 @@ const deps = {
   gpuUrl: new URL('verify/gpu', location.href).href,
 };
 
-/* Tabs */
-const tabs = ['run', 'check', 'models'];
+/* Tabs: Chats and Models on the left; Conversation and How it is private on the right. */
+function tablist(ids, show) {
+  for (const t of ids) {
+    $(t).addEventListener('click', () => show(t));
+    $(t).addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      const next = ids[(ids.indexOf(t) + (e.key === 'ArrowRight' ? 1 : ids.length - 1)) % ids.length];
+      show(next); $(next).focus(); e.preventDefault();
+    });
+  }
+}
 function showTab(t) {
-  for (const x of tabs) { $(`tab-${x}`).setAttribute('aria-selected', String(x === t)); $(`tab-${x}`).tabIndex = x === t ? 0 : -1; $(`p-${x}`).hidden = x !== t; }
+  t = t.replace(/^tab-/, '');
+  for (const x of ['chat', 'models']) { $(`tab-${x}`).setAttribute('aria-selected', String(x === t)); $(`tab-${x}`).tabIndex = x === t ? 0 : -1; $(`p-${x}`).hidden = x !== t; }
   $('stage-run').hidden = t === 'models'; $('stage-models').hidden = t !== 'models';
   if (t === 'models' && !scanned) scan();
 }
-for (const t of tabs) $(`tab-${t}`).addEventListener('click', () => showTab(t));
-const TAB_ORDER = ['check', 'run', 'models'];
-for (const t of TAB_ORDER) $(`tab-${t}`).addEventListener('keydown', (e) => {
-  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-  const next = TAB_ORDER[(TAB_ORDER.indexOf(t) + (e.key === 'ArrowRight' ? 1 : TAB_ORDER.length - 1)) % TAB_ORDER.length];
-  showTab(next); $(`tab-${next}`).focus(); e.preventDefault();
-});
+tablist(['tab-chat', 'tab-models'], showTab);
+function showView(t) {
+  t = t.replace(/^view-/, '');
+  for (const x of ['chat', 'proof']) { $(`view-${x}`).setAttribute('aria-selected', String(x === t)); $(`view-${x}`).tabIndex = x === t ? 0 : -1; $(`v-${x}`).hidden = x !== t; }
+  if (t === 'proof' && lens.browser && !lensText) playFlow();
+}
+tablist(['view-chat', 'view-proof'], showView);
 
-/* Inputs */
-function loadAsk() { $('ask-system').value = SAMPLE_ASK.system; $('ask-message').value = SAMPLE_ASK.message; }
-$('load-ask').addEventListener('click', loadAsk);
-loadAsk();
+/* Settings: the key stays in memory unless "Remember on this device" is ticked. */
+const savedKey = store.get('ppl.key');
+if (savedKey) { $('key').value = savedKey; $('remember').checked = true; }
+const syncKey = () => store.set('ppl.key', $('remember').checked && $('key').value.trim() ? $('key').value.trim() : null);
+$('remember').addEventListener('change', syncKey);
+$('key').addEventListener('input', () => { if ($('remember').checked) syncKey(); });
+if (!savedKey) $('settings').open = true;
+const savedModel = store.get('ppl.model');
+$('model').addEventListener('change', () => store.set('ppl.model', $('model').value));
 
 /* Private models scan */
 let scanned = false;
@@ -95,6 +113,8 @@ async function scan() {
 }
 $('scan').addEventListener('click', scan);
 
+if (savedModel && [...$('model').options].some((o) => o.value === savedModel)) $('model').value = savedModel;
+
 /* Send gate */
 const REDUCE = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const wait = (ms) => new Promise((r) => setTimeout(r, REDUCE ? 0 : ms));
@@ -119,100 +139,291 @@ const gateFrom = (v) => {
   };
 };
 
-/* Run */
-function busy(title, note) {
-  cancelFlash(); flowRun++; current = null;
-  // Clear the previous run's evidence so nothing stale stays on screen.
-  $('reply-card').hidden = true; $('proof').innerHTML = ''; $('sigs-t').tBodies[0].innerHTML = ''; $('compose').textContent = '';
-  $('lens-box').textContent = ''; lensText = '';
-  $('stage-title').textContent = title; $('verdict').className = 'vbadge'; $('verdict').textContent = 'Running';
-  $('break-out').innerHTML = ''; $('run-error').hidden = true;
-  $('stage-run').hidden = false; $('stage-models').hidden = true;
-  gate({}, note);
-}
 const STEP_GATE = { attest: { enclave: 'now' }, vendor: { enclave: 'now', fresh: 'now', key: 'now' }, send: { enclave: 'ok', fresh: 'ok', key: 'ok', enc: 'ok', sig: 'now' } };
 const STEP_NOTE = { attest: 'Nothing sent yet.', vendor: 'Nothing sent yet.', send: 'Checks passed. Sent, locked to the chip.' };
 const onStep = (id, msg) => {
   gate(STEP_GATE[id] || {}, `${STEP_NOTE[id] || ''} ${msg}.`);
   const enc = $('flow').querySelector('.node[data-p="enclave"]');
   enc.classList.toggle('checking', id === 'attest' || id === 'vendor');
-  if (id === 'send') { const l = $('flow').querySelectorAll('.wirel'); l.forEach((x) => { x.classList.remove('go'); void x.offsetWidth; x.classList.add('go'); }); }
 };
-$('run').addEventListener('click', async () => {
-  const key = $('key').value.trim();
-  const err = $('run-error');
-  const fail = (m) => { err.textContent = m; err.hidden = false; };
-  if (!key) return fail('Add a NEAR AI key first. The Demo tab checks a recorded run with no key.');
-  if ($('ask-message').value.trim().length < 2) return fail('Write a message first.');
-  $('run').disabled = true;
-  busy('Live run', 'Nothing sent yet. Checking the chip.');
-  const op = ++opId;
-  try {
-    const rc = await runAsk({ key, model: $('model').value, system: $('ask-system').value, message: $('ask-message').value, onStep }, deps);
-    gate({ ...STEP_GATE.send }, 'Checking every signature and opening every encrypted field.');
-    const v = await verifyReceipt(rc, deps);
-    if (op === opId) render(rc, v, 'Live run');
-  } catch (e) {
-    if (op !== opId) { $('run').disabled = false; return; }
-    gate({}, '');
-    fail(/401|403/.test(e.message) ? 'NEAR AI refused the key. Check it at cloud.near.ai.' : e.message);
-    $('verdict').textContent = 'Stopped'; $('verdict').className = 'vbadge bad';
+
+/* Markdown for replies: escaped first, then a small safe subset (headings, lists, tables, code, links). */
+function inline(t) {
+  return esc(t).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*]*?)\*(?!\w)/g, '$1<i>$2</i>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, l, u) => `<a href="${u}" target="_blank" rel="noopener nofollow">${l}</a>`);
+}
+function md(src) {
+  const L = String(src || '').replace(/\r/g, '').split('\n'); let out = ''; let para = [];
+  const flush = () => { if (para.length) out += `<p>${para.map(inline).join('<br>')}</p>`; para = []; };
+  for (let i = 0; i < L.length; i++) {
+    const l = L[i];
+    if (/^```/.test(l)) { flush(); const code = []; for (i++; i < L.length && !/^```/.test(L[i]); i++) code.push(L[i]); out += `<pre><code>${esc(code.join('\n'))}</code></pre>`; continue; }
+    const h = /^(#{1,6})\s+(.*)$/.exec(l);
+    if (h) { flush(); out += `<h${Math.min(6, h[1].length + 2)}>${inline(h[2])}</h${Math.min(6, h[1].length + 2)}>`; continue; }
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(l)) { flush(); out += '<hr>'; continue; }
+    if (/^\s*\|.*\|\s*$/.test(l) && /^\s*\|?[\s:|-]+\|?\s*$/.test(L[i + 1] || '') && /-/.test(L[i + 1] || '')) {
+      flush(); const row = (r) => r.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+      const head = row(l); const body = []; for (i += 2; i < L.length && /^\s*\|.*\|\s*$/.test(L[i]); i++) body.push(row(L[i])); i--;
+      out += `<div class="mdt"><table><thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      continue;
+    }
+    const li = /^\s*([-*+]|\d+[.)])\s+(.*)$/.exec(l);
+    if (li) {
+      flush(); const ordered = /\d/.test(li[1]); const items = [];
+      for (; i < L.length; i++) { const m = /^\s*([-*+]|\d+[.)])\s+(.*)$/.exec(L[i]); if (m) items.push(m[2]); else if (/^\s{2,}\S/.test(L[i]) && items.length) items[items.length - 1] += ` ${L[i].trim()}`; else break; }
+      i--; out += `<${ordered ? 'ol' : 'ul'}>${items.map((x) => `<li>${inline(x)}</li>`).join('')}</${ordered ? 'ol' : 'ul'}>`; continue;
+    }
+    if (!l.trim()) { flush(); continue; }
+    para.push(l);
   }
-  $('run').disabled = false;
+  flush();
+  return out;
+}
+
+/* Attachments: read in this page and sent inside the encrypted message. */
+const ATTACH_MAX = 120000;
+let attachments = [];
+const attachBlock = (a) => `\n\n[Attached: ${a.name}]\n${a.text}\n[End of ${a.name}]`;
+const ATTACH_RE = /\n\n\[Attached: (.+?)\]\n([\s\S]*?)\n\[End of \1\]/g;
+async function pdfText(file) {
+  const pdfjs = await import('./vendor/pdfjs/pdf.min.js');
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL('vendor/pdfjs/pdf.worker.min.js', import.meta.url).href;
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
+  const pages = [];
+  for (let p = 1; p <= doc.numPages; p++) { const c = await (await doc.getPage(p)).getTextContent(); pages.push(c.items.map((x) => x.str + (x.hasEOL ? '\n' : ' ')).join('')); }
+  return pages.join('\n\n').replace(/[ \t]+\n/g, '\n').trim();
+}
+function renderAttachments() {
+  $('attach-list').innerHTML = attachments.map((a, i) => `<span class="chip file-chip">${esc(a.name)} <span class="sub">${fmt(a.text.length)} characters${a.cut ? ', cut to fit' : ''}</span><button type="button" class="link" data-rm="${i}" aria-label="Remove ${esc(a.name)}">Remove</button></span>`).join('');
+}
+$('attach-list').addEventListener('click', (e) => { const b = e.target.closest('[data-rm]'); if (b) { attachments.splice(Number(b.dataset.rm), 1); renderAttachments(); } });
+$('attach').addEventListener('change', async (ev) => {
+  for (const f of ev.target.files) {
+    try {
+      let text = /\.pdf$/i.test(f.name) || f.type === 'application/pdf' ? await pdfText(f) : await f.text();
+      if (!text.trim()) throw new Error('no text found (a scanned PDF has none)');
+      const cut = text.length > ATTACH_MAX; if (cut) text = text.slice(0, ATTACH_MAX);
+      attachments.push({ name: f.name, text, cut });
+    } catch (e) { fail(`Could not read ${f.name}: ${e.message}`); }
+  }
+  ev.target.value = ''; renderAttachments();
 });
 
-/* Check a receipt. Every operation takes a ticket; a result that finishes after a newer one started is dropped. */
-let opId = 0;
-async function checkReceipt(rc, note) {
+/* Starters: a few sensitive jobs people bring to a private chat. Each sets the chat's instructions. */
+const STARTERS = [
+  { label: 'Explain my lab results', system: SAMPLE_ASK.system, hint: 'Paste or attach your results' },
+  { label: 'Review a contract', system: 'You review contracts for someone who is not a lawyer. Explain each clause in plain English, flag terms that are unusual or one-sided, and list what to ask before signing. Say when a lawyer is needed.', hint: 'Paste or attach the contract' },
+  { label: 'Sort out my finances', system: 'You help with personal finances: debts, budgets, salary and tax questions. Use the numbers given, be concrete, and say when a professional is needed.', hint: 'Describe your situation, with the numbers' },
+  { label: 'Talk something through', system: 'You are a calm, thoughtful listener. Help the person think through something personal. Ask one question at a time, and suggest professional help if they mention a risk of harm.', hint: 'What is on your mind?' },
+];
+function renderStarters() {
+  const show = !!chat && !chat.demo && !chat.rc?.turns?.length && !chat.pending;
+  $('starters').hidden = !show;
+  if (!show) return;
+  $('starters').innerHTML = STARTERS.map((s, i) => `<button type="button" class="chip starter" data-st="${i}" aria-pressed="${$('system').value === s.system}">${esc(s.label)}</button>`).join('');
+}
+$('starters').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-st]'); if (!b) return;
+  const s = STARTERS[Number(b.dataset.st)];
+  $('system').value = $('system').value === s.system ? '' : s.system;
+  $('msg').placeholder = $('system').value ? s.hint : 'Message the enclave';
+  renderStarters(); $('msg').focus();
+});
+
+/* Saved chats: IndexedDB in this browser. Each record is the full receipt. */
+const DB = {
+  db: null,
+  open() {
+    if (!this.db) this.db = new Promise((ok, no) => { const r = indexedDB.open('private-prompt-lab', 1); r.onupgradeneeded = () => r.result.createObjectStore('chats', { keyPath: 'id' }); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
+    return this.db;
+  },
+  async run(mode, fn) { const db = await this.open(); return new Promise((ok, no) => { const t = db.transaction('chats', mode); const req = fn(t.objectStore('chats')); t.oncomplete = () => ok(req?.result); t.onerror = () => no(t.error); t.onabort = () => no(t.error); }); },
+  all() { return this.run('readonly', (st) => st.getAll()).catch(() => null); },
+  put(c) { return this.run('readwrite', (st) => st.put(c)); },
+  del(id) { return this.run('readwrite', (st) => st.delete(id)); },
+};
+const titleOf = (text) => { const first = String(text).replace(ATTACH_RE, '').trim().split('\n')[0] || 'Attached file'; if (first.length <= 60) return first; const cut = first.slice(0, 60); return cut.slice(0, cut.lastIndexOf(' ') > 30 ? cut.lastIndexOf(' ') : 60); };
+async function renderChatList() {
+  const all = await DB.all();
+  if (all === null) { $('chat-list').innerHTML = '<li class="muted">This browser blocks storage, so chats are not saved.</li>'; return; }
+  all.sort((a, b) => b.updated.localeCompare(a.updated));
+  $('chat-list').innerHTML = all.length ? all.map((c) => `<li class="${chat?.id === c.id ? 'on' : ''}"><button type="button" class="chat-open" data-id="${esc(c.id)}"><b>${esc(c.title)}</b><span class="sub">${esc(new Date(c.updated).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))} · ${c.rc.turns.length} message${c.rc.turns.length === 1 ? '' : 's'}</span></button><button type="button" class="link chat-del" data-del="${esc(c.id)}" aria-label="Delete this chat">Delete</button></li>`).join('') : '<li class="muted">None yet.</li>';
+}
+$('chat-list').addEventListener('click', async (e) => {
+  const d = e.target.closest('[data-del]');
+  if (d) { if (!confirm('Delete this chat from this browser? This cannot be undone.')) return; await DB.del(d.dataset.del); if (chat?.id === d.dataset.del) startChat(); renderChatList(); return; }
+  const o = e.target.closest('[data-id]');
+  if (o && !sending) { const all = await DB.all(); const c = (all || []).find((x) => x.id === o.dataset.id); if (c) openSaved(c); }
+});
+const saveChat = async () => { if (!chat || chat.demo || !chat.rc?.turns?.length) return; try { await DB.put({ id: chat.id, title: chat.title, updated: new Date().toISOString(), rc: chat.rc }); } catch { /* storage full or blocked */ } renderChatList(); };
+
+/* The conversation. */
+let chat = null; let sending = null; let opId = 0;
+const signerOf = (rc) => { const m = modelAttestation(rc.attestation, rc.model); return m.signing_public_key || m.signing_address; };
+function fail(m) { $('run-error').textContent = m; $('run-error').hidden = !m; }
+function userHtml(text) {
+  const files = []; const body = String(text).replace(ATTACH_RE, (_, name, t) => { files.push([name, t]); return ''; }).trim();
+  return `${body ? `<div class="utext">${esc(body)}</div>` : ''}${files.map(([n, t]) => `<details class="afile"><summary>File: ${esc(n)} <span class="sub">${fmt(t.length)} characters</span></summary><pre>${esc(t)}</pre></details>`).join('')}`;
+}
+function badge(t, i) {
+  if (!t) return '<span class="pill mid">Checking</span>';
+  return `<button type="button" class="pill ${t.ok ? 'ok' : 'bad'} vbtn" data-turn="${i}" data-tip="${t.ok ? 'Signed by the key in the enclave\'s hardware proof, over the exact encrypted bytes; your message went out encrypted to that key. Click for the proof.' : 'This reply did not pass every check. Click for details.'}">${t.ok ? 'Verified' : 'Not verified'}</button>`;
+}
+function renderThread() {
+  const th = $('thread');
+  if (!chat?.rc?.turns?.length && !chat?.pending) { th.innerHTML = `<div class="empty">${chat?.demo ? '' : '<b>A private chat.</b> Before your first message leaves, this page checks the enclave\'s hardware proof. Then every message is encrypted here to the key in that proof, and every reply comes back signed by it.'}</div>`; renderStarters(); return; }
+  const rows = [];
+  const turns = chat.rc?.turns || [];
+  turns.forEach((m, i) => {
+    rows.push(`<div class="msg user"><div class="bubble">${userHtml(m)}</div></div>`);
+    rows.push(`<div class="msg ai"><div class="bubble md">${md(chat.view?.replies?.[i] ?? '')}</div><div class="meta">${badge(chat.view?.perTurn?.[i], i)}</div></div>`);
+  });
+  if (chat.pending) {
+    rows.push(`<div class="msg user"><div class="bubble">${userHtml(chat.pending.message)}</div></div>`);
+    rows.push(`<div class="msg ai"><div class="bubble md streaming" id="live">${chat.pending.text ? md(chat.pending.text) : `<span class="muted">${esc(chat.pending.status || 'Waiting for the enclave')}</span>`}</div></div>`);
+  }
+  const near = th.scrollHeight - th.scrollTop - th.clientHeight < 80;
+  th.innerHTML = rows.join('');
+  if (near || chat.pending) th.scrollTop = th.scrollHeight;
+  renderStarters();
+}
+let liveFrame = 0;
+function renderLive() {
+  if (liveFrame) return;
+  liveFrame = requestAnimationFrame(() => {
+    liveFrame = 0; const el = $('live'); if (!el || !chat?.pending) return;
+    const th = $('thread'); const near = th.scrollHeight - th.scrollTop - th.clientHeight < 80;
+    el.innerHTML = md(chat.pending.text); if (near) th.scrollTop = th.scrollHeight;
+  });
+}
+$('thread').addEventListener('click', (e) => { const b = e.target.closest('.vbtn'); if (b) { lensTurn = Number(b.dataset.turn); hideTip(); if (current) { lens = lensData(chat.rc, current, lensTurn); } showView('proof'); playFlow(); } });
+
+function startChat() {
+  if (sending) return;
+  opId++;
+  chat = { id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, title: 'New private chat', rc: null, session: null, view: null, demo: false };
+  current = null; lens = {}; lensText = ''; lensTurn = null;
+  if ($('system').disabled) $('system').value = '';
+  $('demo-note').hidden = true; $('system').disabled = false; $('system-hint').textContent = '';
+  $('stage-title').textContent = 'New private chat'; $('verdict').className = 'vbadge'; $('verdict').textContent = 'Not started';
+  gate({}, 'Nothing sent yet. The enclave is checked before your first message leaves.');
+  $('code-card').hidden = true; $('proof').innerHTML = ''; $('sigs-t').tBodies[0].innerHTML = ''; $('break-out').innerHTML = '';
+  fail(''); showTab('chat'); showView('chat'); renderThread(); renderChatList(); $('msg').focus();
+}
+$('new-chat').addEventListener('click', startChat);
+
+async function openReceipt(rc, { id, title, demo = false, note = '' } = {}) {
+  if (sending) return;
   const op = ++opId;
-  busy('Checking with Intel, NVIDIA and NEAR AI', 'Re-checking a recorded run.');
-  $('verdict').textContent = 'Checking';
+  chat = { id: id || `c${Date.now().toString(36)}`, title: title || note || 'Receipt', rc, session: null, view: null, demo };
+  current = null; lens = {}; lensText = ''; lensTurn = null;
+  $('demo-note').hidden = !demo; $('demo-note').innerHTML = demo ? 'A recorded chat about a made-up patient, checked again live as this page loads. <b>New private chat</b> starts your own.' : '';
+  $('stage-title').textContent = chat.title; $('verdict').className = 'vbadge'; $('verdict').textContent = 'Checking';
+  fail(''); gate({}, 'Checking the recorded chat with Intel, NVIDIA and NEAR AI.');
+  if (!demo) { $('system').value = rc.system || ''; $('system').disabled = true; $('system-hint').textContent = 'Fixed for this chat: every turn is checked against it.'; }
+  else { $('system').disabled = false; $('system-hint').textContent = ''; }
   try {
-    if (!rc || !rc.attestation || !Array.isArray(rc.calls)) throw new Error('That file is not a Private Prompt Lab receipt.');
+    chat.view = await checkTurns(rc, signerOf(rc), deps);
+    if (op !== opId) return;
+    chat.rc = chat.view.rc;
+    renderThread();
     const v = await verifyReceipt(rc, deps);
-    if (op === opId) render(rc, v, note);
+    if (op !== opId) return;
+    chat.view = v; render(v, note);
   } catch (e) {
     if (op !== opId) return;
-    $('run-error').textContent = e.message; $('run-error').hidden = false;
-    $('verdict').textContent = 'Not checked'; $('verdict').className = 'vbadge bad';
+    fail(e.message); $('verdict').textContent = 'Not checked'; $('verdict').className = 'vbadge bad'; renderThread();
+  }
+  renderChatList();
+}
+const openSaved = (c) => { showTab('chat'); showView('chat'); openReceipt(c.rc, { id: c.id, title: c.title, note: 'Saved chat, checked again' }); };
+$('receipt-file').addEventListener('change', async (ev) => {
+  const f = ev.target.files[0]; if (!f) return; ev.target.value = '';
+  let rc; try { rc = JSON.parse(await f.text()); } catch { fail('That file is not valid JSON.'); return; }
+  if (!rc?.attestation || !Array.isArray(rc.calls)) { fail('That file is not a Private Prompt Lab receipt.'); return; }
+  openReceipt(rc, { title: `Receipt ${f.name}`, note: `Receipt ${f.name}` });
+});
+
+/* Send one message: check the enclave first if this chat has no live session, then stream the reply. */
+async function send() {
+  if (sending) { sending.abort(); return; }
+  const text = $('msg').value.trim();
+  if (!text && !attachments.length) return;
+  const key = $('key').value.trim();
+  if (!key) { $('settings').open = true; $('key').focus(); fail('Add your NEAR AI key under Key and model to send. The demo chat needs none.'); return; }
+  if (!chat || chat.demo || (chat.rc && chat.rc.model !== $('model').value && !chat.rc.turns.length)) startChat();
+  if (chat.rc && chat.rc.model !== $('model').value) { fail(`This chat runs on ${chat.rc.model}. Start a new chat to use ${$('model').value}.`); return; }
+  fail('');
+  const message = text + attachments.map(attachBlock).join('');
+  const op = opId;
+  sending = new AbortController();
+  $('send-label').textContent = 'Stop'; $('msg').value = ''; const sentFiles = attachments; attachments = []; renderAttachments();
+  chat.pending = { message, text: '', status: chat.session ? 'Encrypting to the enclave key' : 'Checking the enclave before anything is sent' };
+  renderThread();
+  try {
+    if (!chat.session) {
+      $('verdict').className = 'vbadge'; $('verdict').textContent = 'Checking';
+      const session = await openSession({ model: $('model').value, onStep: (id, msg) => { onStep(id, msg); chat.pending.status = msg; renderThread(); } }, deps);
+      if (op !== opId) return;
+      if (chat.rc && signerOf(chat.rc) !== session.signer) throw new Error('The enclave has a new key since this chat started, so it cannot continue. Start a new chat.');
+      chat.session = session;
+      if (!chat.rc) { chat.rc = newReceipt(session, $('system').value); chat.title = titleOf(message); $('system').disabled = true; $('system-hint').textContent = 'Fixed for this chat: every turn is checked against it.'; }
+      chat.code = codeChecks(session.attestation, session.nonce, session.model, deps).catch(() => null);
+    }
+    onStep('send', 'Streaming the reply, encrypted to this page');
+    chat.pending.status = 'Waiting for the enclave';
+    const replies = chat.view?.replies || [];
+    await sendTurn({ key, session: chat.session, rc: chat.rc, replies, message, signal: sending.signal, onDelta: (d) => { chat.pending.text += d; renderLive(); } }, deps);
+    if (op !== opId) return;
+    const last = chat.rc.calls.find((c) => c.role === `turn-${chat.rc.turns.length - 1}`);
+    if (last?.stopped) {
+      const i = chat.rc.turns.length - 1; chat.rc.turns.pop(); chat.rc.calls = chat.rc.calls.filter((c) => !c.role.endsWith(`-${i}`));
+      chat.pending = null; $('msg').value = text; attachments = sentFiles; renderAttachments();
+      fail('Stopped. Nothing from that reply was kept, and your message is back in the box.');
+    } else {
+      chat.pending = null;
+      $('stage-title').textContent = chat.title;
+      gate({ ...STEP_GATE.send }, 'Checking the signature and opening every encrypted field.');
+      chat.view = await checkTurns(chat.rc, chat.session.signer, deps);
+      const att = chat.session.att; const t = chat.view;
+      const v = { ok: att.rows.every((r) => r.ok) && t.calls.every((c) => c.ok) && t.structure.every((r) => r.ok), att, code: await chat.code, calls: t.calls, structure: t.structure, perTurn: t.perTurn, replies: t.replies, sensitive: t.sensitive };
+      if (op !== opId) return;
+      chat.view = v; render(v, 'Live chat'); saveChat();
+    }
+  } catch (e) {
+    if (op !== opId) return;
+    chat.pending = null; $('msg').value = text; attachments = sentFiles; renderAttachments();
+    gate({}, ''); fail(e.message);
+    if (!chat.rc?.turns?.length) { $('verdict').textContent = 'Stopped'; $('verdict').className = 'vbadge bad'; }
+  } finally {
+    if (op === opId) { sending = null; $('send-label').textContent = 'Send'; renderThread(); }
+    else sending = null;
   }
 }
-const samples = {};
-const SAMPLE_FILES = { ask: ['sample-ask.json', 'Recorded private question'] };
-async function checkSample(which) {
-  const btn = $(`check-${which}`); btn.disabled = true;
-  const [file, note] = SAMPLE_FILES[which];
-  try { samples[which] = samples[which] || await (await timedFetch(file)).json(); await checkReceipt(structuredClone(samples[which]), note); }
-  catch (e) { $('run-error').textContent = `Could not load the sample: ${e.message}`; $('run-error').hidden = false; }
-  btn.disabled = false;
-}
-for (const w of Object.keys(SAMPLE_FILES)) $(`check-${w}`).addEventListener('click', () => checkSample(w));
-$('receipt-file').addEventListener('change', async (ev) => {
-  const f = ev.target.files[0]; if (!f) return;
-  try { await checkReceipt(JSON.parse(await f.text()), `Receipt file ${f.name}`); } catch { $('run-error').textContent = 'That file is not valid JSON.'; $('run-error').hidden = false; }
-  ev.target.value = '';
-});
-// First view: a real recorded private question, checked live, before any input.
-checkSample('ask');
+$('composer').addEventListener('submit', (e) => { e.preventDefault(); send(); });
+$('msg').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && window.matchMedia('(pointer:fine)').matches) { e.preventDefault(); send(); } });
 
-/* Who can read it: a flow of the three parties on the path (and prompt20.com, off it), and a lens
-   that shows exactly what the chosen party sees, from the real request and reply bytes. */
+/* Who can read it: the parties on the path (and two off it), and a lens that shows exactly what the
+   chosen party sees for one turn, from the real request and reply bytes. */
 const HEX = '0123456789abcdef';
-let lens = {}; let lensRun = 0; let lensText = ''; let flowRun = 0;
-function lensData(rc, v) {
-  const call = rc.calls[0];
-  const plain = [rc.system ? `[instructions]\n${rc.system}` : '', `[message]\n${rc.message}`].filter(Boolean).join('\n\n');
-  let body = call.request;
-  try { body = JSON.stringify(JSON.parse(call.request), null, 1); } catch { /* keep raw */ }
-  const reply = v.reply || '';
+let lens = {}; let lensRun = 0; let lensText = ''; let flowRun = 0; let lensTurn = null;
+function standardRequest(msgs) { return JSON.stringify({ model: 'any-model', messages: msgs }, null, 1); }
+function lensData(rc, v, i = null) {
+  const n = rc.turns.length; const k = i == null ? n - 1 : i;
+  const call = rc.calls.find((c) => c.role === `turn-${k}`) || rc.calls[0];
+  const msgs = turnMessages(rc.system, rc.turns, v.replies || [], k);
+  const plain = msgs.map((m) => `[${m.role === 'system' ? 'instructions' : m.role === 'user' ? 'you' : 'assistant'}]\n${m.content}`).join('\n\n');
+  let body = call.request; try { body = JSON.stringify(JSON.parse(call.request), null, 1); } catch { /* keep raw */ }
+  const reply = v.replies?.[k] || '';
   const key = String(v.att.signer || '').slice(0, 12);
-  const marks = v.sensitive || [];
+  const marks = v.perTurn?.flatMap((t) => t.sensitive || []) || [];
+  const which = n > 1 ? ` (message ${k + 1} of ${n})` : '';
   return {
-    browser: { title: 'What your browser sees', text: plain, marks, note: marks.length ? `Readable only here and inside the chip. Highlighted: the ${marks.length} sensitive items the chip found.` : 'Readable only here and inside the chip.' },
-    gateway: { title: "What NEAR AI's gateway sees", text: body, hex: true, note: 'The exact request it received. Your words are gibberish; the model name, size, timing, IP and API key are not.' },
-    enclave: { title: 'What the secure chip sees', marks, text: plain + (reply ? `\n\n[its reply, locked back to your browser]\n${reply.slice(0, 600)}${reply.length > 600 ? ' ...' : ''}` : ''), note: `Unlocked inside the chip with key ${key}..., the one in its hardware proof.` },
-    api: { title: 'What a standard AI API receives', text: standardRequest(rc), plainHit: true, marks, note: 'The same message sent the usual way. TLS protects it on the way, then the provider reads every word and keeps it under its own retention policy.' },
-    prompt20: { title: 'What prompt20.com sees', text: '', note: 'Nothing from this page. Your message and key go only to NEAR AI; prompt20.com receives only the public hardware proof.' },
+    browser: { title: `What your browser sees${which}`, text: plain, marks, note: marks.length ? `Readable only here and inside the chip. Highlighted: sensitive items the chip found.` : 'Readable only here and inside the chip.' },
+    gateway: { title: `What NEAR AI's gateway sees${which}`, text: body, hex: true, note: 'The exact request it received, with the whole conversation so far. Your words are gibberish; the model name, size, timing, IP and API key are not.' },
+    enclave: { title: `What the secure chip sees${which}`, marks, text: plain + (reply ? `\n\n[its reply, locked back to your browser]\n${reply.slice(0, 800)}${reply.length > 800 ? ' ...' : ''}` : ''), note: `Unlocked inside the chip with key ${key}..., the one in its hardware proof.` },
+    api: { title: `What a standard AI API receives${which}`, text: standardRequest(msgs), plainHit: true, marks, note: 'The same conversation sent the usual way. TLS protects it on the way, then the provider reads every word and keeps it under its own retention policy.' },
+    prompt20: { title: 'What prompt20.com sees', text: '', note: 'Nothing from this page. Your messages and key go only to NEAR AI; prompt20.com only relays public evidence (Intel\'s signed collateral, the GPU evidence).' },
   };
 }
 const markSens = (html, items) => { let out = html; for (const it of items || []) { const e = esc(it.text); out = out.split(e).join(`<mark class="sens" title="${esc(it.type)}">${e}</mark>`); } return out; };
@@ -253,7 +464,8 @@ async function playFlow() {
 }
 for (const n of document.querySelectorAll('#flow .node')) n.addEventListener('click', () => { flowRun++; showLens(n.dataset.p); });
 
-/* Readable in transit: measured on the real request bytes, against the same message sent the usual way. */
+/* Readable in transit, over the whole chat: measured on the real request bytes, against the same chat
+   sent the usual way. */
 function leakCount(plain, wireText) {
   // Count message characters that appear in the request bytes in runs of 6 or more (words, numbers, names).
   let leaked = 0; const W = 6;
@@ -262,12 +474,22 @@ function leakCount(plain, wireText) {
   }
   return leaked;
 }
-const sentTexts = (rc) => [rc.system, rc.message].filter((x) => String(x || '').trim());
-function standardRequest(rc) {
-  const msgs = sentTexts(rc);
-  return JSON.stringify({ model: 'any-model', messages: msgs.map((c, i) => ({ role: i === 0 && msgs.length > 1 ? 'system' : 'user', content: c })) }, null, 1);
+function meter(rc, v) {
+  const plain = rc.turns.join('\n');
+  const readable = (body) => { try { return JSON.parse(body).messages.map((m) => m.content).join('\n'); } catch { return body; } };
+  const e2eeOk = v.structure.find((r) => r.id === 'e2ee')?.ok === true;
+  const wire = rc.calls.map((c) => readable(c.request)).join('\n');
+  const items = v.sensitive || [];
+  if (items.length) {
+    const byType = {}; for (const it of items) byType[it.type] = (byType[it.type] || 0) + 1;
+    const here = e2eeOk ? 0 : items.filter((it) => wire.includes(it.text)).length;
+    $('sens-chips').innerHTML = `<b class="${here ? 'badc' : 'okc'}">${here} of ${items.length}</b> sensitive items here, <b class="badc">${items.length} of ${items.length}</b> with a standard AI API: ${Object.entries(byType).map(([t, n]) => `<span class="chip">${esc(t)}${n > 1 ? ` x${n}` : ''}</span>`).join('')}`;
+  } else {
+    const n = plain.length; const here = e2eeOk ? 0 : leakCount(plain, wire);
+    $('sens-chips').innerHTML = `<b class="${here ? 'badc' : 'okc'}">${fmt(here)} of ${fmt(n)}</b> characters here, <b class="badc">${fmt(n)} of ${fmt(n)}</b> with a standard AI API`;
+  }
 }
-/* This run's cost in NEAR AI credits, from its real token usage and NEAR AI's published prices. */
+/* This chat's cost in NEAR AI credits, from its real token usage and NEAR AI's published prices. */
 let pricing = null;
 async function costLine(rc) {
   const el = $('cost-line'); el.hidden = true;
@@ -275,34 +497,13 @@ async function costLine(rc) {
     pricing = pricing || Object.fromEntries((await (await timedFetch(`${NEARAI}/models`)).json()).data.map((m) => [m.id, m.pricing]));
     const pr = pricing[rc.model]; if (!pr) return;
     let usd = 0;
-    for (const c of rc.calls) { const u = JSON.parse(c.response).usage || {}; usd += ((u.prompt_tokens || 0) * pr.input + (u.completion_tokens || 0) * pr.output) / 1e6; }
-    if (current?.rc !== rc) return;
+    for (const c of rc.calls) { const u = callUsage(c); usd += ((u.prompt_tokens || 0) * pr.input + (u.completion_tokens || 0) * pr.output) / 1e6; }
+    if (chat?.rc !== rc) return;
     el.hidden = false;
-    el.innerHTML = `Cost <b>$${usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2)}</b> in NEAR AI credits, payable with <a href="https://docs.near.ai/cloud/staking-for-inference/overview" target="_blank" rel="noopener">NEAR staking</a> <button type="button" class="itip" data-tip="${rc.calls.length} call${rc.calls.length === 1 ? '' : 's'}, priced from their real token usage and NEAR AI's published prices. Staking for Inference pays credits from NEAR staking rewards, and the stake stays yours." aria-label="What is this?">i</button>`;
+    el.innerHTML = `Cost so far <b>$${usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2)}</b> in NEAR AI credits, payable with <a href="https://docs.near.ai/cloud/staking-for-inference/overview" target="_blank" rel="noopener">NEAR staking</a> <button type="button" class="itip" data-tip="${rc.calls.length} call${rc.calls.length === 1 ? '' : 's'}, priced from their real token usage and NEAR AI's published prices. Staking for Inference pays credits from NEAR staking rewards, and the stake stays yours." aria-label="What is this?">i</button>`;
   } catch { /* prices unavailable */ }
 }
-function meter(rc, v) {
-  const plain = sentTexts(rc).join('\n');
-  // What a receiver can read after parsing the JSON body: every message content, as sent.
-  const readable = (body) => { try { return JSON.parse(body).messages.map((m) => m.content).join('\n'); } catch { return body; } };
-  // Encrypted and verified content is unreadable by construction; otherwise scan the bytes.
-  const e2eeOk = v.structure.find((r) => r.id === 'e2ee')?.ok === true;
-  const wire = readable(rc.calls[0].request);
-  const items = v.sensitive || [];
-  let html;
-  if (items.length) {
-    const byType = {}; for (const it of items) byType[it.type] = (byType[it.type] || 0) + 1;
-    const here = e2eeOk ? 0 : items.filter((it) => wire.includes(it.text)).length;
-    html = `<b class="${here ? 'badc' : 'okc'}">${here} of ${items.length}</b> sensitive items here, <b class="badc">${items.length} of ${items.length}</b> with a standard AI API: ${Object.entries(byType).map(([t, n]) => `<span class="chip">${esc(t)}${n > 1 ? ` x${n}` : ''}</span>`).join('')}`;
-  } else {
-    const n = plain.length; const here = e2eeOk ? 0 : leakCount(plain, wire);
-    html = `<b class="${here ? 'badc' : 'okc'}">${fmt(here)} of ${fmt(n)}</b> characters here, <b class="badc">${fmt(n)} of ${fmt(n)}</b> with a standard AI API`;
-  }
-  $('sens-chips').innerHTML = html;
-}
 $('replay-flow').addEventListener('click', playFlow);
-$('go-try').addEventListener('click', () => showTab('run'));
-
 
 /* Results */
 let current = null;
@@ -338,28 +539,28 @@ function renderCode(code, rc) {
   card.hidden = false;
 }
 const pill = (ok, yes = 'Pass', no = 'Fail') => `<span class="pill ${ok ? 'ok' : 'bad'}">${ok ? yes : no}</span>`;
-function render(rc, v, note) {
-  current = { rc, v, note };
+const ROLE_NAME = (r) => { const m = /^(turn|scan)-(\d+)$/.exec(r); return m ? (m[1] === 'turn' ? `Message ${Number(m[2]) + 1}` : `Sensitive-item scan ${Number(m[2]) + 1}`) : r; };
+function render(v, note) {
+  current = v;
+  const rc = chat.rc;
   const vd = $('verdict');
   vd.className = `vbadge ${v.ok ? 'ok' : 'bad'}`;
   vd.textContent = v.ok ? 'VERIFIED' : 'NOT VERIFIED';
   const why = v.ok ? '' : v.unreachable ? ' · a verifier could not be reached, press Check again' : '';
-  $('stage-title').textContent = `${note || 'This run'} · ${rc.model} · ${new Date(rc.created).toUTCString().slice(5, 22)} UTC${why}`;
-  gate(gateFrom(v), v.ok ? 'All six checks passed.' : 'A check failed. Details below.', true);
-  lens = lensData(rc, v);
+  $('stage-title').textContent = `${chat.title} · ${rc.model} · ${new Date(rc.created).toUTCString().slice(5, 22)} UTC${why}`;
+  gate(gateFrom(v), v.ok ? `All six checks passed, for ${rc.turns.length === 1 ? 'the message' : `all ${rc.turns.length} messages`}.` : 'A check failed. Details under How it is private.', !chat.animated);
+  chat.animated = true;
+  lens = lensData(rc, v, lensTurn);
   meter(rc, v);
   costLine(rc);
-  playFlow();
+  if (!$('v-proof').hidden) playFlow(); else lensText = '';
   $('break-out').innerHTML = '';
-
   const rows = [...v.att.rows, ...v.structure];
   $('proof').innerHTML = rows.map((r) => `<li>${pill(r.ok)}<div>${esc(r.label)}<div class="why">${esc(r.detail)}</div></div></li>`).join('');
-  $('sigs-t').tBodies[0].innerHTML = v.calls.map((c) => `<tr><td>${esc({ ask: 'Your message', scan: 'Sensitive-item scan' }[c.role] || c.role)}</td><td>${pill(c.hashesOk, 'Yes', 'No')}</td><td class="mono-addr">${esc(c.recovered || 'none')}${c.kind ? ` <span class="hint">${esc(c.kind)}</span>` : ''}</td><td>${pill(c.ok)}</td></tr>`).join('');
+  $('sigs-t').tBodies[0].innerHTML = v.calls.map((c) => `<tr><td>${esc(ROLE_NAME(c.role))}</td><td>${pill(c.hashesOk, 'Yes', 'No')}</td><td class="mono-addr">${esc(c.recovered || 'none')}${c.kind ? ` <span class="hint">${esc(c.kind)}</span>` : ''}</td><td>${pill(c.ok)}</td></tr>`).join('');
   renderCode(v.code, rc);
   $('compose').textContent = v.att.composeHash ? `Enclave app ${v.att.appId}, compose hash ${v.att.composeHash}, key ${v.att.signer}.` : '';
-
-  $('reply-card').hidden = false;
-  $('reply-text').textContent = v.reply || '';
+  renderThread();
 }
 
 let flashTimer = 0;
@@ -383,8 +584,9 @@ function flashGate(keys, label) {
 
 /* Try to break it: each attack runs the real checks on a changed copy, offline, and lists what refused it. */
 async function attack(label, mutate) {
-  if (!current) return;
-  const rc = structuredClone(current.rc);
+  if (!chat?.rc?.turns?.length) return;
+  showView('proof');
+  const rc = structuredClone(chat.rc);
   const why = mutate(rc);
   const v = await verifyReceipt(rc, deps, { offline: true });
   const failed = [...v.att.rows.filter((r) => !['intel', 'nvidia', 'same-app'].includes(r.id)), ...v.structure].filter((r) => !r.ok).map((r) => r.label);
@@ -401,9 +603,10 @@ async function attack(label, mutate) {
   $('break-out').prepend(li);
 }
 $('tamper').addEventListener('click', () => attack('Tamper with the reply', (rc) => {
-  const c = rc.calls[0]; const i = c.response.indexOf('"content"') + 14;
+  const c = [...rc.calls].reverse().find((x) => /^(turn-|ask)/.test(x.role));
+  const m = /"content":"[0-9a-f]/.exec(c.response); const i = m.index + 12;
   c.response = c.response.slice(0, i) + (c.response[i] === 'a' ? 'b' : 'a') + c.response.slice(i + 1);
-  return 'one character changed.';
+  return 'one character of an encrypted reply changed.';
 }));
 $('wrongkey').addEventListener('click', () => attack('Use a fake lock', (rc) => {
   const m = modelAttestation(rc.attestation, rc.model);
@@ -438,19 +641,28 @@ $('outside').addEventListener('click', async () => {
 });
 
 $('fresh').addEventListener('click', async () => {
-  if (!current) return;
-  const { rc, note } = current;
+  if (!chat?.rc?.turns?.length || sending) return;
   $('fresh').disabled = true;
-  try { await checkReceipt(rc, `${note || 'This run'}, checked again`); } finally { $('fresh').disabled = false; }
+  const { session, code } = chat;
+  try { await openReceipt(chat.rc, { id: chat.id, title: chat.title, demo: chat.demo, note: 'Checked again' }); } finally { $('fresh').disabled = false; }
+  if (session) { chat.session = session; chat.code = code; }
 });
 $('download').addEventListener('click', () => {
-  if (!current) return;
-  if (!confirm('This receipt contains the secrets that open its messages. Anyone you give it to can read the prompt and the replies. Download it?')) return;
+  if (!chat?.rc?.turns?.length) return;
+  if (!confirm('This receipt contains the secrets that open its messages. Anyone you give it to can read the whole chat. Download it?')) return;
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([JSON.stringify(current.rc)], { type: 'application/json' }));
-  a.download = `private-prompt-receipt-${current.rc.created.slice(0, 19).replace(/[:T]/g, '-')}.json`;
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(chat.rc)], { type: 'application/json' }));
+  a.download = `private-chat-receipt-${chat.rc.created.slice(0, 19).replace(/[:T]/g, '-')}.json`;
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
+
+/* First view: a real recorded chat, checked live, before any input. */
+(async () => {
+  renderChatList();
+  try { const rc = await (await timedFetch('sample-chat.json')).json(); await openReceipt(rc, { id: 'demo', title: 'Demo: a private health question', demo: true, note: 'Recorded demo' }); }
+  catch (e) { fail(`Could not load the demo: ${e.message}`); }
+})();
+
 /* Tooltips: any [data-tip] element. Hover or focus shows it; tapping an (i) toggles it. Kept inside the viewport. */
 const tipBox = Object.assign(document.createElement('div'), { id: 'tipbox', className: 'tipbox', hidden: true });
 tipBox.setAttribute('role', 'tooltip');

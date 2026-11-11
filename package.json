@@ -8,16 +8,17 @@
   "scripts": {
     "test": "node --test test/",
     "start": "node scripts/serve.mjs",
-    "verify": "node scripts/verify-receipt.mjs web/sample-ask.json",
-    "swap-message": "node scripts/verify-receipt.mjs web/sample-ask.json --swap-message",
-    "tamper": "node scripts/verify-receipt.mjs web/sample-ask.json --tamper",
+    "verify": "node scripts/verify-receipt.mjs web/sample-chat.json",
+    "swap-message": "node scripts/verify-receipt.mjs web/sample-chat.json --swap-message",
+    "tamper": "node scripts/verify-receipt.mjs web/sample-chat.json --tamper",
     "capture": "node scripts/capture-sample.mjs",
     "sync": "./sync.sh",
     "vendor": "npx -y esbuild@0.24.0 vendor-src/noble.js --bundle --format=esm --minify --legal-comments=inline --outfile=web/vendor/noble.js"
   },
   "devDependencies": {
+    "@noble/ciphers": "1.3.0",
     "@noble/curves": "1.9.7",
     "@noble/hashes": "1.8.0",
-    "@noble/ciphers": "1.3.0"
+    "pdfjs-dist": "^4.10.38"
   }
 }

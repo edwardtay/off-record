@@ -7,7 +7,7 @@ import { verifyReceipt, codeChecks, canonicalJson, parseScan, checkAttestation, 
 import { nodeDeps } from '../scripts/deps.mjs';
 
 const load = (f) => JSON.parse(readFileSync(new URL(`../web/${f}.json`, import.meta.url)));
-const SAMPLES = ['sample-ask'];
+const SAMPLES = ['sample-ask', 'sample-chat'];
 const VENDOR = new Set(['intel', 'nvidia', 'same-app']);
 const offline = (rc) => verifyReceipt(rc, nodeDeps, { offline: true });
 
@@ -170,4 +170,31 @@ test('Intel collateral: an unreachable service is reported as unreachable, not a
   const q = modelAttestation(load('sample-ask').attestation, load('sample-ask').model).intel_quote;
   const r = await checkCollateral(q, async () => { throw Object.assign(new Error('down'), { unreachable: true }); }, AT);
   assert.equal(r.ok, false); assert.equal(r.unreachable, true);
+});
+
+test('chat: two streamed turns verify, and turn 2 carried turn 1 and its signed reply', async () => {
+  const v = await offline(load('sample-chat'));
+  assert.equal(v.perTurn.length, 2);
+  assert.ok(v.perTurn.every((t) => t.ok));
+  assert.ok(v.replies[0].length > 100 && v.replies[1].length > 100);
+});
+
+test('chat: rewriting an earlier message in the receipt is refused', async () => {
+  const rc = load('sample-chat'); rc.turns[0] = 'A different first message';
+  const v = await offline(rc);
+  assert.equal(v.structure.find((r) => r.id === 'ask').ok, false);
+});
+
+test('chat: dropping a turn from the receipt is refused', async () => {
+  const rc = load('sample-chat'); rc.calls = rc.calls.filter((c) => c.role !== 'turn-0');
+  const v = await offline(rc);
+  assert.equal(v.structure.find((r) => r.id === 'ask').ok, false);
+});
+
+test('chat: a flipped byte in a streamed reply breaks its signature', async () => {
+  const rc = load('sample-chat'); const c = rc.calls.find((x) => x.role === 'turn-1');
+  const i = c.response.indexOf('"content":"') + 12;
+  c.response = c.response.slice(0, i) + (c.response[i] === 'a' ? 'b' : 'a') + c.response.slice(i + 1);
+  const v = await offline(rc);
+  assert.equal(v.calls.find((x) => x.role === 'turn-1').ok, false);
 });

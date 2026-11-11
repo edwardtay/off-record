@@ -1,10 +1,14 @@
 # Private Prompt Lab
 
-Verifiable private AI in the browser. Before your prompt leaves, the page checks the enclave on NEAR AI Cloud, then encrypts the prompt to the key inside its hardware quote and verifies the signed, encrypted reply. You can see the ciphertext NEAR AI's gateway received, and try to break the proof yourself.
+A private AI chat with proof on every reply. Before your first message leaves, the page checks the model's enclave on NEAR AI Cloud (Intel TDX and NVIDIA confidential GPUs). Then every message is encrypted in the browser to the key inside the enclave's hardware quote, every reply streams back encrypted to the page, and each one is checked against the enclave's signature before it gets its **Verified** badge.
+
+- **A real chat.** Follow-up questions, streamed replies, and attachments (PDF, text, Markdown, CSV, JSON) read in the page and sent encrypted like the message. Starters for the jobs people bring to a private chat: lab results, a contract, money, something personal.
+- **History stays on your device.** Chats are kept in the browser (IndexedDB) and never reach a server. Each saved chat is a full receipt, so opening it re-checks every proof.
+- **Proof that holds up.** The full Intel DCAP check, NVIDIA's GPU tokens and every reply signature are verified in the page. Turn 2 is checked to have carried exactly turn 1 and its signed reply, so the conversation shown is the conversation the enclave saw.
 
 **Live:** https://prompt20.com/tools/private-prompt/
 
-## Who can read your prompt
+## Who can read your messages
 
 | Party | Sees | Why |
 |---|---|---|
@@ -37,6 +41,10 @@ Attestation usually stops at "an enclave app with this hash". The lab follows th
 5. **Gateway.** NEAR AI's gateway, which relays the ciphertext, runs in its own enclave. Its quote names its key and this run's nonce, its compose file matches (image `nearaidev/cloud-api@sha256:d74c3c3eb67c...`), and Intel's DCAP check passes on it.
 
 On 2026-11-11 all five private chat models (Qwen3.8-27B, Qwen3.6-35B, Qwen3-VL-30B, GLM-5.3-Flash, DeepSeek-V4.1-Flash) linked up end to end.
+
+## Chat receipts
+
+A chat receipt holds the attestation (with this chat's nonce), the instructions, each message, and every call's exact request and response bytes with the one-time secrets that open them. Turn *i* is checked to have sent exactly the instructions, every earlier message and its signed reply, and message *i*, all encrypted to the attested key. A rewritten earlier message, a dropped turn or a flipped byte in a streamed reply is refused (`npm test` covers each). Streamed replies are signed too: NEAR AI's signature covers `sha256` of the whole event stream, which the page keeps byte for byte. Stopping a reply discards that turn, so a receipt never holds an unsigned answer.
 
 ## Try to break it
 
@@ -73,9 +81,9 @@ Things we hit while building, in case they help:
 
 ## Try it
 
-**No key needed:** open https://prompt20.com/tools/private-prompt/. It re-checks a recorded private question as it loads: the six gate steps tick green, then an animation follows the message from your browser (plaintext) through NEAR AI's gateway (the real ciphertext) into the enclave. Click any party to see exactly what it sees. Press the five **Try to break it** buttons.
+**No key needed:** open https://prompt20.com/tools/private-prompt/. It re-checks a recorded private question as it loads: the six gate steps tick green, then an animation follows the message from your browser (plaintext) through NEAR AI's gateway (the real ciphertext) into the enclave. Click any party to see exactly what it sees. Click a reply's **Verified** badge for its proof, and press the five **Try to break it** buttons. **New private chat** starts your own.
 
-**Your own message:** get a NEAR AI key at https://cloud.near.ai ($10 free credits at https://nearbuilders.org/join), open **Try yours**, paste the key (kept in the page only, never stored) and send. Watch the gate: "No prompt sent yet" until the enclave checks pass.
+**Your own message:** get a NEAR AI key at https://cloud.near.ai ($10 free credits at https://nearbuilders.org/join), open **Key and model**, paste the key (kept in memory unless you tick Remember on this device), pick a starter or type, and send. Watch the gate: "Nothing sent yet" until the enclave checks pass.
 
 **Which models are private:** the **Models** tab asks NEAR AI for every model's attestation, live, with no key. On 2026-11-11, 12 of 63 models ran in their own TEE, 4 went through an attested router, and 47 (the Anthropic, OpenAI, Google and xAI models among them) were passed to outside providers. NEAR AI's API says so itself: "TEE attestation is not supported for external providers." The lab only offers models with their own TEE.
 
@@ -85,12 +93,12 @@ Node 20 or later.
 
 ```sh
 npm install
-npm test                # 19 offline tests, run in CI: the recorded run, the attacks, Intel collateral
-npm run verify          # the recorded question, no key: asks Intel, NVIDIA and NEAR AI now
+npm test                # 25 offline tests, run in CI: the recorded run, the attacks, Intel collateral
+npm run verify          # the recorded two-turn chat, no key: asks Intel, NVIDIA and NEAR AI now
 npm run tamper          # flip one byte in the reply first: prints NOT VERIFIED and exits 1
 npm run swap-message    # rewrite the message in the receipt: NOT VERIFIED
 npm start               # the page at http://localhost:8787/tools/private-prompt/
-NEARAI_KEY=sk-... npm run capture   # record a new sample into web/sample-ask.json
+NEARAI_KEY=sk-... npm run capture   # record a new two-turn chat into web/sample-chat.json
 ```
 
 `npm run verify` prints one PASS or FAIL line per check and ends with `VERIFIED`.
@@ -103,9 +111,10 @@ NEARAI_KEY=sk-... npm run capture   # record a new sample into web/sample-ask.js
 | [`web/dcap.js`](web/dcap.js) | Intel DCAP in the page: the TDX quote's signature chain to Intel's pinned root, then TCB status, QE identity and revocation from Intel's signed collateral. |
 | [`web/e2ee.js`](web/e2ee.js) | End-to-end encryption to the attested model key, and opening fields again when checking a receipt. |
 | [`web/vendor/noble.js`](web/vendor/noble.js) | The audited [noble](https://paulmillr.com/noble/) curves, hashes and ciphers (MIT), bundled from `vendor-src/noble.js` with esbuild so the page loads no third-party script for its cryptography. |
-| [`web/lab.js`](web/lab.js) | The page: send gate, who-sees-what views, attacks, model scan. Every request has a deadline; reads retry, sends never do. |
+| [`web/lab.js`](web/lab.js) | The page: chat, streaming, attachments, saved chats (IndexedDB), send gate, who-sees-what views, attacks, model scan. Every request has a deadline; reads retry, sends never do. |
+| [`web/vendor/pdfjs`](web/vendor/pdfjs) | Mozilla's pdf.js 4.10.38 (Apache-2.0), loaded only when you attach a PDF, so PDFs are read in the page. |
 | [`web/index.html`](web/index.html), [`web/style.css`](web/style.css) | The page, as served on prompt20.com. |
-| [`web/sample.js`](web/sample.js), [`web/sample-ask.json`](web/sample-ask.json) | A fictional patient's lab results, and a real recorded run of it. |
+| [`web/sample.js`](web/sample.js), [`web/sample-chat.json`](web/sample-chat.json), [`web/sample-ask.json`](web/sample-ask.json) | A fictional patient's lab results; a real recorded two-turn chat about them (the demo), and an earlier one-question receipt kept to test that old receipts still verify. |
 | [`scripts/verify-receipt.mjs`](scripts/verify-receipt.mjs) | Command-line receipt checker. |
 | [`test/engine.test.mjs`](test/engine.test.mjs), [`test/fixtures`](test/fixtures) | Offline tests, run in CI on every push: the recorded run verifies; tampered replies, swapped keys, forged and replayed quotes, edited deploy logs and compose files, and edited or stale Intel collateral are refused. |
 | [`scripts/serve.mjs`](scripts/serve.mjs) | Local server with the same verifier pass-through as production. |
@@ -120,7 +129,8 @@ NEARAI_KEY=sk-... npm run capture   # record a new sample into web/sample-ask.js
 - NEAR AI's gateway sees metadata: your IP, timing, message sizes, the model, request settings and your API key.
 - You trust the code this page delivers and NEAR AI's key management. Attestation shows what hardware and enclave app ran, not that the app never logs.
 - Instances of one model share a key, so it identifies a deployment, not one machine.
-- A receipt contains the one-time secrets that open its messages, so it reveals the prompt to whoever holds it. Share a receipt only when you mean to share the prompt.
+- A receipt contains the one-time secrets that open its messages, so it reveals the chat to whoever holds it. Saved chats sit in this browser's storage unencrypted, like any web chat's local history; anyone with access to this browser profile can read them. Delete them in the chat list.
+- A chat is attested once, when it starts. Each later reply must be signed by the same key, so a swapped enclave cannot answer, but the hardware proof itself is from the chat's start.
 - The model weights are named by a label in NEAR AI's deploy file. The engine image is pinned, but the weights themselves are not measured.
 - The app id is checked against the app NEAR AI serves today, through NEAR AI's own attestation endpoint. Judging that app's compose file (what code it runs) is NEAR AI's published deployment; the page shows the compose hash so you can compare it in NEAR AI's Verification Center.
 - The CPU quote and the GPU evidence are tied together by the shared nonce, as in NEAR AI's own verifier. Neither vendor attests that link directly.
