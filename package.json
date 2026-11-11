@@ -1,0 +1,19 @@
+{
+  "name": "private-prompt-lab",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Optimise a system prompt inside a NEAR AI Cloud TEE and check the hardware proof and signatures yourself.",
+  "license": "MIT",
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "verify": "node scripts/verify-receipt.mjs web/sample-run.json",
+    "swap-test": "node scripts/verify-receipt.mjs web/sample-run.json --swap-test",
+    "tamper": "node scripts/verify-receipt.mjs web/sample-run.json --tamper",
+    "capture": "node scripts/capture-sample.mjs",
+    "sync": "./sync.sh"
+  },
+  "dependencies": {
+    "ethers": "6.13.4"
+  }
+}
