@@ -10,7 +10,7 @@ const ROOT = new URL('../web/', import.meta.url).pathname;
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 const walk = (d) => readdirSync(d).flatMap((f) => (statSync(join(d, f)).isDirectory() ? walk(join(d, f)) : [join(d, f)]));
 
-let bad = 0;
+let bad = 0; let gone = 0;
 for (const file of walk(ROOT).sort()) {
   const path = relative(ROOT, file);
   const local = sha(readFileSync(file));
@@ -20,8 +20,8 @@ for (const file of walk(ROOT).sort()) {
     live = r.ok ? sha(Buffer.from(await r.arrayBuffer())) : `HTTP ${r.status}`;
   } catch { /* stays unreachable */ }
   const ok = live === local;
-  if (!ok) bad++;
-  console.log(`${ok ? 'MATCH   ' : 'DIFFERS '} ${local.slice(0, 16)}  ${path}${ok ? '' : `  (live: ${live.slice(0, 16)})`}`);
+  if (!ok && /^(unreachable|HTTP )/.test(live)) gone++; else if (!ok) bad++;
+  console.log(`${ok ? 'MATCH   ' : /^(unreachable|HTTP )/.test(live) ? 'NO FILE ' : 'DIFFERS '} ${local.slice(0, 16)}  ${path}${ok ? '' : `  (live: ${live.slice(0, 16)})`}`);
 }
-console.log(bad ? `\n${bad} file(s) differ from this checkout.` : `\nEvery file served at ${BASE} matches this checkout.`);
-process.exit(bad ? 1 : 0);
+console.log(bad ? `\n${bad} file(s) differ from this checkout.` : gone ? `\n${gone} file(s) could not be fetched; nothing compared differs.` : `\nEvery file of this page in web/ is served at ${BASE} exactly as in this checkout.`);
+process.exit(bad || gone ? 1 : 0);

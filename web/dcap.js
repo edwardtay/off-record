@@ -159,7 +159,7 @@ function signedJson(text, field, chain, now) {
   if (sig.length !== 64 || !verify(sig, body, signer.key)) throw new Error(`${field} signature does not verify`);
   const doc = JSON.parse(text.slice(start, end));
   if (now > Date.parse(doc.nextUpdate)) throw new Error(`${field} is past its next update`);
-  return doc;
+  return { doc, signer };
 }
 function checkCrl(der, chain, issuerCert, now) {
   const crl = parseCrl(der);
@@ -189,12 +189,13 @@ export async function checkCollateral(quoteHex, get, now = Date.now()) {
     const caKind = /Processor/.test(ca.name) ? 'processor' : 'platform';
 
     const [tcbR, qeR, pckCrlR, rootCrlR] = await Promise.all([get('tcb', pck.sgx.fmspc), get('qe'), get('pckcrl', caKind), get('rootcrl')]);
-    const tcb = signedJson(tcbR.text, 'tcbInfo', tcbR.chain, now);
-    const qeId = signedJson(qeR.text, 'enclaveIdentity', qeR.chain, now);
+    const { doc: tcb, signer: tcbSigner } = signedJson(tcbR.text, 'tcbInfo', tcbR.chain, now);
+    const { doc: qeId, signer: qeSigner } = signedJson(qeR.text, 'enclaveIdentity', qeR.chain, now);
     const pckCrl = checkCrl(pckCrlR.bytes, pckCrlR.chain, ca, now);
     const rootCrl = checkCrl(rootCrlR.bytes, null, { key: fromHex(INTEL_ROOT_KEY) }, now);
-    out.revoked = pckCrl.revoked.includes(pck.serial) || rootCrl.revoked.includes(ca.serial);
-    if (out.revoked) { out.status = 'Revoked'; throw new Error('the PCK certificate or its CA is revoked'); }
+    // The root CRL also covers the certificate that signed the TCB info and the QE identity.
+    out.revoked = pckCrl.revoked.includes(pck.serial) || rootCrl.revoked.includes(ca.serial) || rootCrl.revoked.includes(tcbSigner.serial) || rootCrl.revoked.includes(qeSigner.serial);
+    if (out.revoked) { out.status = 'Revoked'; throw new Error('a certificate in the chain (PCK, its CA, or the collateral signer) is revoked'); }
     if (tcb.id !== 'TDX' || String(tcb.fmspc).toUpperCase() !== pck.sgx.fmspc) throw new Error('TCB info is for another platform');
 
     // Platform TCB level: CPU SVN components and PCE SVN from the PCK certificate, TDX components from the quote.

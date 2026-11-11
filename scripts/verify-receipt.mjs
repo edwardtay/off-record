@@ -31,11 +31,13 @@ const { compose: cc, deploy: dl, gateway: gw } = v.code;
 const src = dl.source;
 console.log('\nWhat code is running');
 console.log(`${mark(cc.ok)}  compose file ${cc.name} hashes to the quote's MRCONFIGID and RTMR3 compose hash (${cc.hash.slice(0, 16)}...)`);
-console.log(`${mark(dl.ok && dl.intel !== false)}  deploy log: ${dl.entries} actions hashed into a second quote with this nonce, same VM, Intel signature ${dl.sig ? 'checks out' : 'FAILS'}, Intel collateral ${dl.intel === null ? 'not checked' : dl.intel ? 'up to date, not revoked' : 'FAILS'}`);
+console.log(`${dl.ok && dl.intel === null ? '?   ' : mark(dl.ok && dl.intel === true)}  deploy log: ${dl.entries} actions hashed into a second quote with this nonce, same VM, Intel signature ${dl.sig ? 'checks out' : 'FAILS'}, Intel collateral ${dl.intel === null ? 'not checked' : dl.intel ? 'trusted, not revoked' : 'FAILS'}`);
 if (src) console.log(`${mark(src.ok)}  ${src.service || 'model container'} from ${src.url}: GitHub file matches the logged sha256\n      engine ${src.image}${src.weights ? `, weights ${src.weights}${src.revision ? `@${src.revision.slice(0, 7)}` : ''}` : ''}`);
-console.log(`${mark(gw.ok && gw.intel !== false)}  gateway enclave: quote names its key ${gw.key?.slice(0, 16)}... and this nonce, Intel signature ${gw.sig ? 'checks out' : 'FAILS'}, Intel collateral ${gw.intel === null ? 'not checked' : gw.intel ? 'up to date, not revoked' : 'FAILS'}\n`);
+console.log(`${gw.ok && gw.intel === null ? '?   ' : mark(gw.ok && gw.intel === true)}  gateway enclave: quote names its key ${gw.key?.slice(0, 16)}... and this nonce, Intel signature ${gw.sig ? 'checks out' : 'FAILS'}, Intel collateral ${gw.intel === null ? 'not checked' : gw.intel ? 'trusted, not revoked' : 'FAILS'}\n`);
 console.log(`${(v.rc?.turns || []).length} turn(s), each sent with the earlier turns and their signed replies`);
 console.log(`Sensitive items found inside the enclave: ${(v.sensitive || []).map((x) => x.type).join(', ') || 'none'}`);
 console.log(`\nReply (decrypted): ${String(v.reply).replace(/\s+/g, ' ').slice(0, 300)}`);
-console.log(`\n${v.ok ? 'VERIFIED' : v.offline ? 'NOT VERIFIED (offline: vendor checks skipped)' : v.unreachable ? 'NOT VERIFIED (a verifier could not be reached; try again)' : 'NOT VERIFIED'}`);
+// A definite failure (a changed byte, a wrong key, a swapped message) is reported ahead of an outage.
+const definite = v.att.rows.some((r) => !r.ok && !r.unreachable && !(v.offline && (r.id === 'intel' || r.id === 'nvidia'))) || !v.code?.compose?.ok || v.calls.some((c) => !c.ok) || v.structure.some((r) => !r.ok);
+console.log(`\n${v.ok ? 'VERIFIED' : definite ? 'NOT VERIFIED (a check failed above)' : v.offline ? 'NOT VERIFIED (offline: vendor checks skipped)' : v.unreachable ? 'NOT VERIFIED (a verifier could not be reached; try again)' : 'NOT VERIFIED'}`);
 process.exit(v.ok ? 0 : 1);

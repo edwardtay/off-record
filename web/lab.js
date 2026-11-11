@@ -19,7 +19,8 @@ async function timedFetch(url, opts = {}) {
   const ms = /\/chat\/completions$/.test(u) ? TIMEOUT_MS.chat : TIMEOUT_MS.other;
   for (let attempt = 0; ; attempt++) {
     try {
-      const r = await window.fetch(url, { ...opts, signal: opts.signal || AbortSignal.timeout(ms) });
+      // The caller's stop button and the deadline both apply.
+      const r = await window.fetch(url, { ...opts, signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms) });
       if (isGet && attempt < 2 && [429, 502, 504].includes(r.status)) { await new Promise((ok) => setTimeout(ok, 600 * 2 ** attempt)); continue; }
       return r;
     } catch (e) {
@@ -75,7 +76,7 @@ if (savedKey) { $('key').value = savedKey; $('remember').checked = true; }
 const syncKey = () => store.set('offrecord.key', $('remember').checked && $('key').value.trim() ? $('key').value.trim() : null);
 $('remember').addEventListener('change', syncKey);
 $('key').addEventListener('input', () => { if ($('remember').checked) syncKey(); });
-const syncFine = () => { $('fine').textContent = $('key').value.trim() ? 'Encrypted to a sealed chip before it leaves. Saved only in this browser.' : 'Free demo, 20 messages a day. Encrypted to a sealed chip before it leaves. Saved only in this browser.'; };
+const syncFine = () => { $('fine').textContent = $('key').value.trim() ? 'Encrypted to a sealed enclave before it leaves. Saved only in this browser.' : 'Free demo, up to 20 messages a day. Encrypted to a sealed enclave before it leaves. Saved only in this browser.'; };
 $('key').addEventListener('input', syncFine); syncFine();
 const savedModel = store.get('offrecord.model');
 $('model').addEventListener('change', () => store.set('offrecord.model', $('model').value));
@@ -153,7 +154,7 @@ const gateFrom = (v) => {
 };
 
 const STEP_GATE = { attest: { enclave: 'now' }, vendor: { enclave: 'now', fresh: 'now', key: 'now' }, send: { enclave: 'ok', fresh: 'ok', key: 'ok', enc: 'ok', sig: 'now' } };
-const STEP_NOTE = { attest: 'Nothing sent yet.', vendor: 'Nothing sent yet.', send: 'Checks passed. Sent, locked to the chip.' };
+const STEP_NOTE = { attest: 'Nothing sent yet.', vendor: 'Nothing sent yet.', send: 'Checks passed. Sent, locked to the enclave.' };
 const onStep = (id, msg) => {
   gate(STEP_GATE[id] || {}, `${STEP_NOTE[id] || ''} ${msg}.`);
   const enc = $('flow').querySelector('.node[data-p="enclave"]');
@@ -305,7 +306,7 @@ function badge(t, i) {
 }
 function renderThread() {
   const th = $('thread');
-  if (!chat?.rc?.turns?.length && !chat?.pending) { th.innerHTML = chat?.demo ? '' : `<div class="empty"><span class="logo big"><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg></span><h2>What do you want to keep off the record?</h2><p>Only a sealed chip can read this chat. Every reply is checked before you see it.</p></div>`; renderStarters(); return; }
+  if (!chat?.rc?.turns?.length && !chat?.pending) { th.innerHTML = chat?.demo ? '' : `<div class="empty"><span class="logo big"><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg></span><h2>What do you want to keep off the record?</h2><p>Only a sealed enclave can read this chat. Every reply is checked before you see it.</p></div>`; renderStarters(); return; }
   const rows = [];
   const turns = chat.rc?.turns || [];
   turns.forEach((m, i) => {
@@ -428,7 +429,8 @@ async function send() {
       gate({ ...STEP_GATE.send }, 'Checking the signature and opening every encrypted field.');
       chat.view = await checkTurns(chat.rc, chat.session.signer, deps);
       const att = chat.session.att; const t = chat.view;
-      const v = { ok: att.rows.every((r) => r.ok) && t.calls.every((c) => c.ok) && t.structure.every((r) => r.ok), att, code: await chat.code, calls: t.calls, structure: t.structure, perTurn: t.perTurn, replies: t.replies, sensitive: t.sensitive };
+      const code = await chat.code;
+      const v = { ok: att.rows.every((r) => r.ok) && code?.compose?.ok === true && t.calls.every((c) => c.ok) && t.structure.every((r) => r.ok), att, code, calls: t.calls, structure: t.structure, perTurn: t.perTurn, replies: t.replies, sensitive: t.sensitive };
       if (op !== opId) return;
       chat.view = v; render(v, 'Live chat'); saveChat();
     }
@@ -461,9 +463,9 @@ function lensData(rc, v, i = null) {
   const marks = v.perTurn?.flatMap((t) => t.sensitive || []) || [];
   const which = n > 1 ? ` (message ${k + 1} of ${n})` : '';
   return {
-    browser: { title: `What your browser sees${which}`, text: plain, marks, note: marks.length ? `Readable only here and inside the chip. Highlighted: sensitive items the chip found.` : 'Readable only here and inside the chip.' },
+    browser: { title: `What your browser sees${which}`, text: plain, marks, note: marks.length ? `Readable only here and inside the enclave. Highlighted: sensitive items the enclave found.` : 'Readable only here and inside the enclave.' },
     gateway: { title: `What NEAR AI's gateway sees${which}`, text: body, hex: true, note: chat?.relay ? 'The exact request it received, with the whole conversation so far. Your words are gibberish; the model name, size and timing are not. It came from prompt20.com\'s demo relay, so it never saw your IP.' : 'The exact request it received, with the whole conversation so far. Your words are gibberish; the model name, size, timing, IP and API key are not.' },
-    enclave: { title: `What the secure chip sees${which}`, marks, text: plain + (reply ? `\n\n[its reply, locked back to your browser]\n${reply.slice(0, 800)}${reply.length > 800 ? ' ...' : ''}` : ''), note: `Unlocked inside the chip with key ${key}..., the one in its hardware proof.` },
+    enclave: { title: `What the secure enclave sees${which}`, marks, text: plain + (reply ? `\n\n[its reply, locked back to your browser]\n${reply.slice(0, 800)}${reply.length > 800 ? ' ...' : ''}` : ''), note: `Unlocked inside the enclave with key ${key}..., the one in its hardware proof.` },
     api: { title: `What a standard AI API receives${which}`, text: standardRequest(msgs), plainHit: true, marks, note: 'The same conversation sent the usual way. TLS protects it on the way, then the provider reads every word and keeps it under its own retention policy.' },
     prompt20: chat?.relay
       ? { title: `What prompt20.com's demo relay sees${which}`, text: body, hex: true, note: 'This chat used the free demo, so it passed through prompt20.com, which added the demo key. It sees the same ciphertext as NEAR AI\'s gateway, plus your IP. It cannot unlock your words or change a reply without breaking the signature.' }
@@ -561,10 +563,10 @@ function renderCode(code, rc) {
   const { compose: c, deploy: d, gateway: g } = code;
   const src = d.source;
   const pending = (x) => x === null || x === undefined;
-  const intelTxt = (x, sig) => `Intel's signature ${sig ? 'checks out here' : 'FAILS here'}${pending(x) ? '' : x ? ', and Intel\'s collateral says the platform is up to date and not revoked' : ', but Intel\'s collateral check failed'}`;
+  const intelTxt = (x, sig) => `Intel's signature ${sig ? 'checks out here' : 'FAILS here'}${pending(x) ? '' : x ? ', and Intel\'s collateral lists the platform as trusted and not revoked' : ', but Intel\'s collateral check failed'}${pending(x) ? '; Intel\'s collateral could not be fetched, so this link is not confirmed' : ''}`;
   const links = [
     { ok: c.ok, title: 'The enclave booted this compose file', body: c.ok ? `${esc(c.name)}: its sha256 is in the hardware quote twice (MRCONFIGID and the RTMR3 event log). It pins ${c.images.map((i) => `<code>${esc(short(i))}</code>`).join(', ')}.` : 'The compose file does not match the quote.' },
-    { ok: d.ok && d.intel !== false, title: 'NEAR AI\'s deploy log, signed by the same chip', body: d.present ? `${d.entries} deploy actions. Their hash and this run's nonce are in a second TDX quote from the same VM (same MRTD and RTMRs). ${intelTxt(d.intel, d.sig)}.` : 'No deploy log in this proof.' },
+    { ok: d.ok && d.intel === true, mid: d.ok && pending(d.intel), title: 'NEAR AI\'s deploy log, signed by the same enclave', body: d.present ? `${d.entries} deploy actions. Their hash and this run's nonce are in a second TDX quote from the same VM (same MRTD and RTMRs). ${intelTxt(d.intel, d.sig)}.` : 'No deploy log in this proof.' },
   ];
   if (d.containers?.length || src) {
     const ct = d.containers?.[0] || {};
@@ -575,7 +577,7 @@ function renderCode(code, rc) {
       links.push({ ok: pinned, mid: !pinned, title: 'The inference engine and weights', body: `Engine <code>${esc(short(src.image))}</code>${/@sha256:/.test(src.image) ? ', pinned by digest' : src.built ? ', built in the enclave from that file' : ', not pinned by digest'}.${src.weights ? ` Weights ${src.revision ? ghLink(`https://huggingface.co/${src.weights}/tree/${src.revision}`, `${src.weights} at ${src.revision.slice(0, 7)}`) : esc(src.weights)}, as labelled in that file.` : ''}` });
     }
   }
-  links.push({ ok: g.ok && g.intel !== false, title: 'NEAR AI\'s gateway runs in its own enclave', body: g.present ? `The gateway that relays your ciphertext: ${g.compose.images.filter((i) => /cloud-api/.test(i)).map((i) => `<code>${esc(short(i))}</code>`).join('') || esc(g.compose.name)}. Its quote names its key and this run's nonce, and its compose file matches. ${intelTxt(g.intel, g.sig)}.` : 'No gateway proof in this run.' });
+  links.push({ ok: g.ok && g.intel === true, mid: g.ok && pending(g.intel), title: 'NEAR AI\'s gateway runs in its own enclave', body: g.present ? `The gateway that relays your ciphertext: ${g.compose.images.filter((i) => /cloud-api/.test(i)).map((i) => `<code>${esc(short(i))}</code>`).join('') || esc(g.compose.name)}. Its quote names its key and this run's nonce, and its compose file matches. ${intelTxt(g.intel, g.sig)}.` : 'No gateway proof in this run.' });
   const okN = links.filter((l) => l.ok).length;
   $('code-sum').className = `pill ${okN === links.length ? 'ok' : 'bad'}`;
   $('code-sum').textContent = `${okN} of ${links.length} linked`;
@@ -660,7 +662,7 @@ $('wrongkey').addEventListener('click', () => attack('Use a fake lock', (rc) => 
   const m = modelAttestation(rc.attestation, rc.model);
   const fake = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, '0')).join('');
   m.signing_public_key = fake; m.signing_address = fake;
-  return 'a lock the chip never signed.';
+  return 'a lock the enclave never signed.';
 }));
 $('forge').addEventListener('click', () => attack('Forge the hardware proof', (rc) => {
   // Write a fake key into the quote's report data, so the key-binding check alone would pass.

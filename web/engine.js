@@ -197,7 +197,7 @@ export async function checkAttestation(report, nonce, model, vendor, live) {
   const failedSteps = Object.entries(dcap.steps).filter(([, ok]) => !ok).map(([k]) => k);
   rows.push({ id: 'intel-sig', label: 'Intel\'s signature on the quote checks out, here', ok: dcap.ok, detail: dcap.ok ? `signed by Intel's TDX quoting enclave; PCK certificate chain to Intel's pinned root key, checked here with no verifier service` : `failed: ${failedSteps.join(', ') || dcap.error}` });
   const t = vendor?.tdx;
-  rows.push({ id: 'intel', label: 'Intel says the platform is up to date and not revoked', ok: !!t?.verified, unreachable: !!t?.unreachable, detail: t?.error || `TCB ${t?.status} (Intel TCB evaluation ${t?.evaluation})${t?.advisories?.length ? `, advisories ${t.advisories.join(', ')}` : ''}; PCK certificate and CA not revoked; quoting enclave matches Intel's identity. Intel-signed collateral, checked here` });
+  rows.push({ id: 'intel', label: 'Intel lists the platform as trusted and not revoked', ok: !!t?.verified, unreachable: !!t?.unreachable, detail: t?.error || `TCB ${t?.status} (Intel TCB evaluation ${t?.evaluation})${t?.advisories?.length ? `, advisories ${t.advisories.join(', ')}` : ''}; PCK certificate and CA not revoked; quoting enclave matches Intel's identity. Intel-signed collateral, checked here` });
   rows.push({ id: 'nvidia', label: 'NVIDIA attests the GPUs', ok: !!vendor?.gpu?.verified && strip0x(vendor.gpu.nonce) === strip0x(nonce) && vendor.gpu.noDebug, unreachable: !!vendor?.gpu?.unreachable, detail: vendor?.gpu?.error || `${vendor?.gpu?.gpus || 0} GPU${vendor?.gpu?.gpus === 1 ? '' : 's'}, each token's NVIDIA signature checked here, this nonce, debug off, secure boot on` });
   if (live) {
     const sameApp = !!live.app?.ok && live.app.appId === app.appId;
@@ -570,6 +570,8 @@ export async function verifyReceipt(rc0, deps, { offline = false } = {}) {
   const att = await checkAttestation(rc.attestation, rc.nonce, rc.model, vendor, live);
   if (offline) att.rows.filter((r) => r.id === 'intel' || r.id === 'nvidia').forEach((r) => { r.detail = 'not checked (offline)'; });
   const t = await checkTurns(rc, att.signer, deps);
-  const allOk = !offline && att.rows.every((r) => r.ok) && t.calls.every((c) => c.ok) && t.structure.every((r) => r.ok);
+  // Verified covers the hardware proof (including the measured compose file), the key, the encryption, every
+  // signature and the conversation. The deploy log, GitHub file and gateway are shown separately.
+  const allOk = !offline && att.rows.every((r) => r.ok) && code.compose.ok && t.calls.every((c) => c.ok) && t.structure.every((r) => r.ok);
   return { ok: allOk, unreachable: att.rows.some((r) => !r.ok && r.unreachable), offline, att, code, calls: t.calls, structure: t.structure, perTurn: t.perTurn, replies: t.replies, reply: t.replies[t.replies.length - 1], sensitive: t.sensitive, rc: t.rc };
 }
