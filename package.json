@@ -11,7 +11,8 @@
     "swap-test": "node scripts/verify-receipt.mjs web/sample-run.json --swap-test",
     "tamper": "node scripts/verify-receipt.mjs web/sample-run.json --tamper",
     "capture": "node scripts/capture-sample.mjs",
-    "sync": "./sync.sh"
+    "sync": "./sync.sh",
+    "verify:extreme": "node scripts/verify-receipt.mjs web/sample-extreme.json"
   },
   "dependencies": {
     "@noble/ciphers": "^1.3.0",

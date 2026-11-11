@@ -16,11 +16,20 @@ A company's system prompt is product IP. Pasting it into an ordinary prompt opti
 
 Then it shows input tokens per call before and after, the monthly saving at your production model's price (live from data.prompt20.com), a word diff, the cuts the model made, the rules it kept, and pass or fail for each test case on both prompts.
 
-On the sample (a fictional support-agent prompt), it took 580 tokens per call to 306 (47% fewer) with 4 of 4 tests still passing, and all 9 replies verified.
+Evidence and adoption are separate verdicts. **VERIFIED** means the proof holds. **Safe to adopt** means every test the original prompt passes, the optimised prompt passes too; a test that only the original passes is a regression.
+
+Two recorded runs of a fictional support-agent prompt with 7 tests show both sides:
+
+| Run | Tokens per call | Tests | Verdicts |
+|---|---|---|---|
+| Careful (keep every rule) | 580 to 311, 46% fewer | 7 of 7 | VERIFIED, safe to adopt |
+| Extreme (40-word budget) | 580 to 129, 78% fewer | 3 of 7 | VERIFIED, 4 regressions caught: the sign-off dropped twice, "contact the merchant" lost from late refunds, and a fraud report no longer escalates with ESC-2 |
+
+You pick how hard to cut (Careful, Aggressive, Extreme), and the lab shows where the savings stop being safe.
 
 ## Try it
 
-**No key needed:** open https://prompt20.com/tools/private-prompt/, choose **Check a run**, press **Check the recorded sample run**. You see VERIFIED, the token saving, the diff, the tests and every proof row. Press **Flip one byte in a reply**: the verdict turns NOT VERIFIED.
+**No key needed:** open https://prompt20.com/tools/private-prompt/. The page checks the recorded careful run as it loads: VERIFIED, safe to adopt, the token saving and every proof row. Under **Check a run**, press **40-word run: regressions caught** to see a fully verified run that is unsafe to adopt. Press **Flip one byte in a reply**: the verdict turns NOT VERIFIED.
 
 **Your own prompt:** get a NEAR AI key at https://cloud.near.ai ($10 free credits at https://nearbuilders.org/join), paste it on the **Optimise a prompt** tab with your system prompt and test cases, and press **Optimise in the enclave**. A run takes about 30 seconds and costs a few cents. **Download the receipt** saves the evidence so anyone can check it later.
 
@@ -33,6 +42,7 @@ Node 20 or later.
 ```sh
 npm install
 npm run verify          # check the recorded sample receipt, no key: asks Intel, NVIDIA and NEAR AI now
+npm run verify:extreme  # the 40-word run: VERIFIED, and NOT SAFE with 4 regressions
 npm run tamper          # flip one byte in a reply first: prints NOT VERIFIED and exits 1
 npm run swap-test       # rewrite a test message in the receipt: NOT VERIFIED
 npm start               # the page at http://localhost:8787/tools/private-prompt/
@@ -50,7 +60,7 @@ NEARAI_KEY=sk-... npm run capture   # record a new sample run into web/sample-ru
 | [`web/vendor/noble.js`](web/vendor/noble.js) | The audited [noble](https://paulmillr.com/noble/) curves, hashes and ciphers (MIT), bundled from `vendor-src/noble.js` with esbuild so the page loads no third-party script for its cryptography. |
 | [`web/lab.js`](web/lab.js) | The page: tabs, test-case editor, model scan, diff, results. |
 | [`web/index.html`](web/index.html), [`web/style.css`](web/style.css) | The page, as served on prompt20.com. |
-| [`web/sample.js`](web/sample.js), [`web/sample-run.json`](web/sample-run.json) | The fictional Northwind Pay prompt with 4 test cases, and a real recorded run of it. |
+| [`web/sample.js`](web/sample.js), [`web/sample-run.json`](web/sample-run.json), [`web/sample-extreme.json`](web/sample-extreme.json) | The fictional Northwind Pay prompt with 7 test cases, and two real recorded runs of it (careful and 40-word). |
 | [`scripts/verify-receipt.mjs`](scripts/verify-receipt.mjs) | Command-line receipt checker. |
 | [`scripts/serve.mjs`](scripts/serve.mjs) | Local server with the same verifier pass-through as production. |
 | [`nginx/private-prompt.conf`](nginx/private-prompt.conf) | The production pass-through for the two vendor verifiers. |

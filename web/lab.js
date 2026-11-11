@@ -1,5 +1,5 @@
 /* Private Prompt Lab page. All checks live in engine.js, shared with the Node verifier. */
-import { runLab, verifyReceipt, fetchAttestation, privacyKind, newNonce, NEARAI, DEFAULT_MODEL } from './engine.js';
+import { runLab, verifyReceipt, fetchAttestation, privacyKind, newNonce, NEARAI, DEFAULT_MODEL, MODES } from './engine.js';
 import { SAMPLE_PROMPT, SAMPLE_TESTS } from './sample.js';
 
 const $ = (id) => document.getElementById(id);
@@ -135,11 +135,11 @@ $('run').addEventListener('click', async () => {
   if (prompt.length < 40) { err.textContent = 'Paste a system prompt of at least a few sentences.'; err.hidden = false; return; }
   if (!tests.length) { err.textContent = 'Add at least one test case.'; err.hidden = false; return; }
   $('run').disabled = true; $('steps').innerHTML = ''; showTab('run');
-  $('stage-title').textContent = 'Running in the enclave'; $('verdict').className = 'vbadge'; $('verdict').textContent = 'Running';
+  $('stage-title').textContent = 'Running in the enclave'; $('verdict').className = 'vbadge'; $('verdict').textContent = 'Running'; $('adopt').hidden = true;
   for (const id of ['t-tokens', 't-cost', 't-tests', 't-sigs']) $(id).innerHTML = '&nbsp;';
   for (const id of ['t-tokens-s', 't-cost-s', 't-tests-s', 't-sigs-s']) $(id).textContent = '';
   try {
-    const rc = await runLab({ key, model: $('model').value, prompt, tests, onStep: stepUI }, deps);
+    const rc = await runLab({ key, model: $('model').value, mode: $('mode').value, prompt, tests, onStep: stepUI }, deps);
     stepUI('tests', 'Checking every signature');
     const v = await verifyReceipt(rc, deps);
     [...$('steps').children].forEach((li) => { li.className = 'done'; });
@@ -153,22 +153,25 @@ $('run').addEventListener('click', async () => {
 /* Check a receipt */
 async function checkReceipt(rc, note) {
   const err = $('run-error'); err.hidden = true; $('steps').hidden = true;
-  $('stage-title').textContent = 'Checking with Intel, NVIDIA and NEAR AI'; $('verdict').className = 'vbadge'; $('verdict').textContent = 'Checking';
+  $('stage-title').textContent = 'Checking with Intel, NVIDIA and NEAR AI'; $('verdict').className = 'vbadge'; $('verdict').textContent = 'Checking'; $('adopt').hidden = true;
   try {
     if (!rc || !rc.attestation || !Array.isArray(rc.calls)) throw new Error('That file is not a Private Prompt Lab receipt.');
     render(rc, await verifyReceipt(rc, deps), note);
   } catch (e) { err.textContent = e.message; err.hidden = false; }
 }
-let sample = null;
-async function checkSample() {
-  $('check-sample').disabled = true;
-  try { sample = sample || await (await fetch('sample-run.json')).json(); await checkReceipt(structuredClone(sample), 'Recorded sample run'); }
+const samples = {};
+const SAMPLE_FILES = { careful: ['sample-run.json', 'Recorded careful run'], extreme: ['sample-extreme.json', 'Recorded 40-word run'] };
+async function checkSample(which = 'careful') {
+  const btn = $(`check-${which}`); btn.disabled = true;
+  const [file, note] = SAMPLE_FILES[which];
+  try { samples[which] = samples[which] || await (await fetch(file)).json(); await checkReceipt(structuredClone(samples[which]), note); }
   catch (e) { $('run-error').textContent = `Could not load the sample: ${e.message}`; $('run-error').hidden = false; }
-  $('check-sample').disabled = false;
+  btn.disabled = false;
 }
-$('check-sample').addEventListener('click', checkSample);
+$('check-careful').addEventListener('click', () => checkSample('careful'));
+$('check-extreme').addEventListener('click', () => checkSample('extreme'));
 // App-like first view: the stage shows a real recorded run, checked live, before any input.
-checkSample();
+checkSample('careful');
 $('receipt-file').addEventListener('change', async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
   try { await checkReceipt(JSON.parse(await f.text()), `Receipt file ${f.name}`); } catch { $('run-error').textContent = 'That file is not valid JSON.'; $('run-error').hidden = false; }
@@ -217,7 +220,12 @@ function render(rc, v, note) {
   else { $('t-cost').textContent = 'n/a'; $('t-cost-s').textContent = 'Prices did not load'; }
   const po = v.tests.filter((x) => x.original?.pass).length, pn = v.tests.filter((x) => x.optimized?.pass).length;
   $('t-tests').textContent = `${pn} of ${v.tests.length}`;
-  $('t-tests-s').textContent = `Original prompt: ${po} of ${v.tests.length}`;
+  $('t-tests-s').textContent = `Original prompt: ${po} of ${v.tests.length}${v.regressions.length ? `, ${v.regressions.length} regression${v.regressions.length === 1 ? '' : 's'}` : ''}`;
+  const ad = $('adopt');
+  ad.hidden = false;
+  ad.className = `vbadge ${v.safe ? 'ok' : 'bad'}`;
+  ad.textContent = v.safe ? 'Safe to adopt' : v.regressions.length ? `${v.regressions.length} regression${v.regressions.length === 1 ? '' : 's'} caught` : 'Fails a test';
+  $('tests-tile').classList.toggle('bad', !v.safe);
   const sOk = v.calls.filter((c) => c.ok).length;
   $('t-sigs').textContent = `${sOk} of ${v.calls.length}`;
   $('t-sigs-s').textContent = 'Signed in the enclave, checked here';
@@ -228,7 +236,7 @@ function render(rc, v, note) {
   $('kept').innerHTML = v.signed.kept.map((k) => `<li>${esc(k)}</li>`).join('') || '<li>None listed</li>';
 
   const cell = (r) => (r ? `${pill(r.pass)}${r.fails.length ? ` <span class="hint">${esc(r.fails.join('; '))}</span>` : ''}<details><summary>Reply</summary><div class="reply">${esc(r.reply)}</div></details>` : 'n/a');
-  $('tests-t').tBodies[0].innerHTML = v.tests.map((x) => `<tr><td>${esc(x.input)}</td><td>${cell(x.original)}</td><td>${cell(x.optimized)}</td></tr>`).join('');
+  $('tests-t').tBodies[0].innerHTML = v.tests.map((x) => `<tr${x.original?.pass && !x.optimized?.pass ? ' class="regress"' : ''}><td>${x.original?.pass && !x.optimized?.pass ? '<span class="pill bad">Regression</span> ' : ''}${esc(x.input)}</td><td>${cell(x.original)}</td><td>${cell(x.optimized)}</td></tr>`).join('');
 
   const rows = [...v.att.rows, ...v.structure];
   $('proof').innerHTML = rows.map((r) => `<li>${pill(r.ok)}<div>${esc(r.label)}<div class="why">${esc(r.detail)}</div></div></li>`).join('');

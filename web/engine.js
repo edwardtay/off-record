@@ -18,13 +18,25 @@ const ALGO = 'ed25519';
 export const DEFAULT_MODEL = 'Qwen/Qwen3.8-27B';
 export const RECEIPT_VERSION = 2;
 
-const OPTIMIZER_SYSTEM = [
+const OPTIMIZER_BASE = [
   'You edit system prompts for production AI apps. Goal: the same behaviour in fewer tokens.',
   'Keep every rule, limit, number, name, tone requirement, output format and refusal. Never add a rule.',
   'Remove repetition, filler, politeness padding, rules stated twice and examples that restate a rule.',
+];
+const OPTIMIZER_AGGRESSIVE = [
+  'You edit system prompts for production AI apps. Goal: the shortest prompt that still works.',
+  'Cut as hard as you can: aim for under a third of the original tokens. Keep only the rules you judge essential and drop details a capable model would infer.',
+];
+const OPTIMIZER_FORMAT = [
   'Reply with JSON only, no code fence:',
   '{"optimized": "<the new system prompt>", "changes": [{"change": "<what you cut or merged>", "why": "<why behaviour stays the same>"}], "kept": ["<each hard rule you preserved, in a few words>"]}',
-].join('\n');
+];
+const OPTIMIZER_EXTREME = [
+  'You edit system prompts for production AI apps. Hard budget: the new prompt must be 40 words or fewer.',
+  'Fit the budget whatever it takes: merge, compress and drop the rules you judge least important.',
+];
+export const MODES = { careful: 'Careful', aggressive: 'Aggressive', extreme: 'Extreme (40 words)' };
+const optimizerSystem = (mode) => [...({ aggressive: OPTIMIZER_AGGRESSIVE, extreme: OPTIMIZER_EXTREME }[mode] || OPTIMIZER_BASE), ...OPTIMIZER_FORMAT].join('\n');
 
 const toHex = (b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('');
 const fromHex = (h) => Uint8Array.from(strip0x(h).match(/../g) || [], (x) => parseInt(x, 16));
@@ -269,7 +281,7 @@ async function pool(items, n, fn) {
 }
 
 /** Full run. The prompt is sent only after the attestation passes. Returns a receipt anyone can check with verifyReceipt. */
-export async function runLab({ key, model = DEFAULT_MODEL, prompt, tests, onStep = () => {} }, deps) {
+export async function runLab({ key, model = DEFAULT_MODEL, prompt, tests, mode = 'careful', onStep = () => {} }, deps) {
   const nonce = newNonce();
   onStep('attest', 'Asking NEAR AI for a fresh hardware attestation');
   const report = await fetchAttestation(model, nonce, deps);
@@ -284,7 +296,7 @@ export async function runLab({ key, model = DEFAULT_MODEL, prompt, tests, onStep
   const modelPub = att.signer;
 
   onStep('optimize', 'Optimising the prompt inside the enclave');
-  const optCall = await chat({ key, model, modelPub, maxTokens: 6000, messages: [{ role: 'system', content: OPTIMIZER_SYSTEM }, { role: 'user', content: prompt }] }, deps);
+  const optCall = await chat({ key, model, modelPub, maxTokens: 6000, messages: [{ role: 'system', content: optimizerSystem(mode) }, { role: 'user', content: prompt }] }, deps);
   const opt = parseOptimizer(openCall(optCall, modelPub).reply);
   if (!opt) throw new Error('The model did not return a usable optimised prompt. Run it again.');
 
@@ -294,7 +306,7 @@ export async function runLab({ key, model = DEFAULT_MODEL, prompt, tests, onStep
 
   return {
     version: RECEIPT_VERSION, tool: 'https://prompt20.com/tools/private-prompt/', created: new Date().toISOString(),
-    model, nonce, attestation: report,
+    model, mode, nonce, attestation: report,
     original: prompt, optimized: opt.optimized, tests,
     calls: [{ ...optCall, role: 'optimize' }, ...calls],
   };
@@ -341,10 +353,12 @@ export async function verifyReceipt(rc, deps, { offline = false } = {}) {
     { id: 'optimized', label: 'The optimised prompt shown is the one the model returned', ok: optOk, detail: 'read from the signed optimiser reply' },
     { id: 'tests', label: 'Each test ran once per prompt, with the message shown', ok: sentOk && modelOk, detail: `${tests.length} test${tests.length === 1 ? '' : 's'}, ${rc.calls.length} signed calls, all to ${rc.model}` },
   ];
+  // Evidence and adoption are separate verdicts: a run can be fully verified and still unsafe to adopt.
+  const regressions = results.map((t, i) => ({ i, t })).filter(({ t }) => t.original?.pass && !t.optimized?.pass);
   const allOk = !offline && att.rows.every((r) => r.ok) && calls.every((c) => c.ok) && structure.every((r) => r.ok);
   const unreachable = att.rows.some((r) => !r.ok && r.unreachable);
   return {
-    ok: allOk, unreachable, offline, att, calls, structure, tests: results,
+    ok: allOk, unreachable, offline, att, calls, structure, tests: results, regressions, safe: regressions.length === 0 && results.every((t) => t.optimized?.pass),
     signed: { changes: Array.isArray(signed.changes) ? signed.changes : [], kept: Array.isArray(signed.kept) ? signed.kept : [] },
     tokens: { original: results[0]?.original?.tokens ?? null, optimized: results[0]?.optimized?.tokens ?? null, savedPerCall: saved.length ? Math.round(saved.reduce((a, b) => a + b, 0) / saved.length) : 0 },
   };
