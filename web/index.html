@@ -8,9 +8,9 @@
 <meta name="author" content="Edward Tay">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=16">
 <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Prompt20","item":"https://prompt20.com/"},{"@type":"ListItem","position":2,"name":"Tools","item":"https://prompt20.com/tools/"},{"@type":"ListItem","position":3,"name":"Off Record","item":"https://prompt20.com/tools/off-record/"}]},{"@type":"WebApplication","name":"Off Record","url":"https://prompt20.com/tools/off-record/","applicationCategory":"DeveloperApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Send a sensitive prompt to an AI model in a NEAR AI Cloud TEE, encrypted in the browser to the key in its Intel TDX quote, and verify the TDX quote, NVIDIA GPU attestation and every signed reply in the browser.","author":{"@type":"Person","name":"Edward Tay"}}]}</script>
-<script type="module" src="lab.js?v=20"></script>
+<script type="module" src="lab.js?v=21"></script>
 </head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
 <symbol id="i-lab" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h14a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5h-7l-5 4v-4H5A2.5 2.5 0 0 1 2.5 15V6A2.5 2.5 0 0 1 5 3.5z"/><rect x="8.75" y="9.75" width="6.5" height="4.75" rx="1"/><path d="M10.25 9.75V8.5a1.75 1.75 0 0 1 3.5 0v1.25"/></symbol>
@@ -69,7 +69,7 @@
     <header class="bar">
       <div class="bar-t"><span id="stage-title" class="title">Off Record</span><span id="stage-sub" class="sub"></span></div>
       <span id="demo-note" class="tag" hidden data-tip="A recorded chat about a made-up patient, checked again live as this page loads. New chat starts your own.">Demo</span>
-      <button type="button" id="verdict" class="status" aria-haspopup="dialog" aria-controls="proof-panel">Checking</button>
+      <button type="button" id="verdict" class="status" aria-haspopup="dialog" aria-controls="proof-panel" data-tip="See why you can trust this chat">Checking</button>
     </header>
 
     <div id="v-chat" class="chatwrap">
@@ -84,7 +84,7 @@
           <button type="submit" class="send" id="send" aria-label="Send"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg><span id="send-label" class="sr">Send</span></button>
         </div>
       </form>
-      <p class="fine" id="fine">Free demo, 20 messages a day. Encrypted to a sealed chip before it leaves. Saved only in this browser.</p>
+      <p class="fine"><span id="fine">Free demo, 20 messages a day. Encrypted to a sealed chip before it leaves. Saved only in this browser.</span> <button type="button" class="link" id="how">How do I know?</button></p>
     </div>
 
     <div id="stage-models" class="models" hidden>
@@ -97,8 +97,15 @@
 </div>
 
 <aside id="proof-panel" class="drawer" hidden aria-labelledby="proof-h">
-  <div class="drawer-h"><h2 id="proof-h">How this chat is private</h2><button type="button" class="link" id="close-proof">Close</button></div>
+  <div class="drawer-h"><h2 id="proof-h">Is this really off record?</h2><button type="button" class="link" id="close-proof">Close</button></div>
   <div class="drawer-b">
+      <div class="pp-list" id="plain-proof">
+        <div class="pp" data-pp="chip"><span class="pp-i" aria-hidden="true"></span><div><b>Only a sealed chip can read it</b><p>Your browser checked signed proof from Intel and NVIDIA that the AI runs inside locked hardware. Nobody can look inside it, NEAR AI's own staff included.</p></div></div>
+        <div class="pp" data-pp="scramble"><span class="pp-i" aria-hidden="true"></span><div><b>Scrambled before it left your device</b><p>Your message was locked to that chip's key right here. Everyone in between, prompt20 and NEAR AI included, only passed along gibberish. Tap the boxes below to see exactly what each one got.</p></div></div>
+        <div class="pp" data-pp="signed"><span class="pp-i" aria-hidden="true"></span><div><b>The reply really came from the chip</b><p>The chip signed every reply. If anyone changed a single letter on the way, this would turn red.</p></div></div>
+        <p class="pp-limit"><b>What it cannot promise.</b> Others can see that you used it, when, and how much you sent. The proof shows which program runs on the chip; it cannot show that the program keeps no copy. Your history stays in this browser until you delete it.</p>
+      </div>
+      <h3 class="who-h">The six checks behind this</h3>
       <ol class="gate" id="gate" aria-label="Send gate">
         <li data-g="enclave" tabindex="0" data-tip="The model runs inside a sealed Intel TDX enclave with NVIDIA confidential GPUs. This page checks Intel's signature, that Intel lists the platform as up to date and not revoked, and NVIDIA's signed GPU tokens.">Real secure hardware</li>
         <li data-g="fresh" tabindex="0" data-tip="A random number made for this run is inside the hardware proof, so an old proof cannot be replayed.">Proof made for this run</li>

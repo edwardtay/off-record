@@ -58,6 +58,11 @@ function showView(t) {
 }
 $('verdict').addEventListener('click', () => { if (chat?.rc?.turns?.length) showView('proof'); });
 $('close-proof').addEventListener('click', () => showView('chat'));
+// "How do I know?": the proof for this chat, or the recorded demo's proof when there is nothing to show yet.
+$('how').addEventListener('click', async () => {
+  if (!(chat?.rc?.turns?.length && current)) { await loadDemo(); }
+  if (chat?.rc?.turns?.length) showView('proof');
+});
 $('scrim').addEventListener('click', () => showView('chat'));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('proof-panel').hidden) showView('chat'); });
 $('open-models').addEventListener('click', () => showTab('models'));
@@ -128,6 +133,12 @@ async function gate(states, note, stagger = false) {
   for (const li of $('gate').children) {
     if (stagger) { li.className = 'now'; await wait(170); if (run !== gateRun) return; }
     li.className = states[li.dataset.g] || '';
+  }
+  // The plain-language summary at the top of the panel follows the same checks.
+  const PP = { chip: ['enclave', 'fresh', 'key'], scramble: ['enc'], signed: ['sig', 'shown'] };
+  for (const el of $('plain-proof').querySelectorAll('.pp')) {
+    const s = PP[el.dataset.pp].map((g) => states[g] || '');
+    el.className = `pp ${s.includes('bad') ? 'bad' : s.every((x) => x === 'ok') ? 'ok' : ''}`;
   }
 }
 const gateFrom = (v) => {

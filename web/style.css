@@ -361,3 +361,19 @@ html body .or .composer textarea, html body .or .composer textarea:focus, html b
 .drawer-b { flex:1 1 auto; min-height:0; }
 .status.idle { display:none; }
 @media (max-width:860px) { .composer { position:sticky; bottom:6px; z-index:5; box-shadow:0 -8px 16px #fff; } }
+
+/* Plain-language proof summary at the top of the proof panel. */
+.pp-list { display:grid; gap:8px; margin:0 0 14px; }
+.pp { display:grid; grid-template-columns:28px minmax(0,1fr); gap:10px; align-items:start; border:2px solid var(--sp-line); border-radius:12px; padding:10px 12px; background:#fff; }
+.pp b { font-size:14.5px; color:var(--ink); }
+.pp p { margin:3px 0 0; font-size:13px; line-height:1.5; color:var(--soft); }
+.pp-i { width:26px; height:26px; border-radius:50%; border:2px solid var(--sp-line); display:grid; place-items:center; font-weight:800; font-size:14px; color:var(--soft); }
+.pp-i::before { content:"…"; }
+.pp.ok { border-color:var(--ok); background:var(--ok-bg); }
+.pp.ok .pp-i { border-color:var(--ok); background:var(--ok); color:#fff; }
+.pp.ok .pp-i::before { content:"✓"; }
+.pp.bad { border-color:var(--bad); background:var(--bad-bg); }
+.pp.bad .pp-i { border-color:var(--bad); background:var(--bad); color:#fff; }
+.pp.bad .pp-i::before { content:"✗"; }
+.pp-limit { margin:2px 0 0; font-size:12.5px; line-height:1.5; color:var(--ink); background:#fffbeb; border:2px solid #fcd34d; border-radius:12px; padding:9px 12px; }
+.fine .link { font-size:inherit; font-weight:700; color:var(--accent); background:none; border:0; padding:0; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
