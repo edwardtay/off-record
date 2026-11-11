@@ -10,7 +10,7 @@
    }
 */
 
-import { newClientKeys, encryptTo, openRequestField, decryptWith, verifyEd25519 } from './e2ee.js?v=9';
+import { newClientKeys, encryptTo, openRequestField, decryptWith, verifyEd25519 } from './e2ee.js?v=11';
 
 export const NEARAI = 'https://cloud-api.near.ai/v1';
 const ALGO = 'ed25519';
@@ -58,7 +58,9 @@ export function modelAttestation(report, model) {
 
 /** Which kind of protection NEAR AI reports for a model. */
 export function privacyKind(report) {
-  if (!report || report.error) return 'external';
+  // Only NEAR AI's own statement counts as external; a network or server error is unknown, never "not private".
+  if (!report) return 'unknown';
+  if (report.error) return /external provider/i.test(report.error) ? 'external' : 'unknown';
   const m = (report.model_attestations || [])[0] || {};
   if (m.intel_quote && m.signing_address) return 'model-tee';
   if (m.trust === 'router_attested' || m.verified) return 'routed-tee';

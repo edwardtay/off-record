@@ -8,10 +8,10 @@
 <meta name="author" content="Edward Tay">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=9">
 <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Prompt20","item":"https://prompt20.com/"},{"@type":"ListItem","position":2,"name":"Tools","item":"https://prompt20.com/tools/"},{"@type":"ListItem","position":3,"name":"Private Prompt Lab","item":"https://prompt20.com/tools/private-prompt/"}]},{"@type":"WebApplication","name":"Private Prompt Lab","url":"https://prompt20.com/tools/private-prompt/","applicationCategory":"DeveloperApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Send a sensitive prompt to an AI model in a NEAR AI Cloud TEE, encrypted in the browser to the key in its Intel TDX quote, and verify the TDX quote, NVIDIA GPU attestation and every signed reply in the browser.","author":{"@type":"Person","name":"Edward Tay"}}]}</script>
 <script src="/tools/models-data.js" defer></script>
-<script type="module" src="lab.js?v=10"></script>
+<script type="module" src="lab.js?v=11"></script>
 </head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
 <symbol id="i-lab" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><path d="M8.5 15.5h2M12 15.5h3.5M8.5 18h5"/></symbol>
@@ -61,8 +61,8 @@
   <div class="sp-ctrl">
     <div class="sp-seg" role="tablist" aria-label="Lab mode">
       <button type="button" role="tab" id="tab-check" aria-controls="p-check" aria-selected="true">Demo</button>
-      <button type="button" role="tab" id="tab-run" aria-controls="p-run" aria-selected="false">Try yours</button>
-      <button type="button" role="tab" id="tab-models" aria-controls="p-models" aria-selected="false">Models</button>
+      <button type="button" role="tab" id="tab-run" aria-controls="p-run" aria-selected="false" tabindex="-1">Try yours</button>
+      <button type="button" role="tab" id="tab-models" aria-controls="p-models" aria-selected="false" tabindex="-1">Models</button>
     </div>
 
     <div id="p-check" role="tabpanel" aria-labelledby="tab-check" class="panel-in">
@@ -122,34 +122,34 @@
     </div>
   </div>
 
-  <div class="sp-stage" aria-live="polite">
+  <div class="sp-stage">
     <div id="stage-run">
       <h2 class="sp-k"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg><span id="stage-title">Checking a recorded run</span><span class="grow"></span><span id="adopt" class="vbadge" hidden></span><span id="verdict" class="vbadge">Checking</span></h2>
       <ol class="gate" id="gate" aria-label="Send gate">
         <li data-g="enclave" title="Enclave checked: TEE on Intel TDX with NVIDIA GPUs, RTMR3 replay, Intel and NVIDIA verification">Real secure hardware</li>
-        <li data-g="fresh" title="Fresh challenge: a random nonce made for this run is inside the hardware quote">Checked just now</li>
-        <li data-g="key" title="Key bound: the quote names the model's Ed25519 key">Lock belongs to it</li>
+        <li data-g="fresh" title="Fresh challenge: a random nonce made when this run was sent is inside the hardware quote">Proof made for this run</li>
+        <li data-g="key" title="Key bound: the quote names the model's Ed25519 key">Key matches the chip</li>
         <li data-g="enc" title="Encrypted to key: NEAR AI E2EE v2 to the attested key">Locked before sending</li>
         <li data-g="sig" title="Reply signed: Ed25519 signature over the exact encrypted bytes">Reply signed by it</li>
-        <li data-g="shown" title="Shown = signed: what this page shows is what was signed">Nothing swapped</li>
+        <li data-g="shown" title="Shown = signed: what this page shows is what was signed">Display matches proof</li>
       </ol>
-      <p id="gate-note" class="gate-note"></p>
+      <p id="gate-note" class="gate-note" role="status" aria-live="polite"></p>
       <p id="run-error" class="err" role="alert" hidden></p>
 
       <div class="who-row"><h3 class="who-h">Who can read your prompt? <span class="sub">Click one.</span></h3><span class="grow"></span>
-        <div class="sp-seg small cmp" role="group" aria-label="Compare"><button type="button" id="cmp-lab" aria-pressed="true">This lab</button><button type="button" id="cmp-api" aria-pressed="false">Normal AI API</button></div></div>
-      <div class="meter" id="meter" aria-live="polite">
+        <div class="sp-seg small cmp" role="group" aria-label="Compare"><button type="button" id="cmp-lab" aria-pressed="true">This lab</button><button type="button" id="cmp-api" aria-pressed="false">Standard AI API</button></div></div>
+      <div class="meter" id="meter">
         <div class="mrow"><span class="ml">This lab</span><span class="mbar"><i id="m-lab"></i></span><span class="mv" id="mv-lab"></span></div>
-        <div class="mrow"><span class="ml">Normal AI API</span><span class="mbar bad"><i id="m-api"></i></span><span class="mv" id="mv-api"></span></div>
+        <div class="mrow"><span class="ml">Standard API</span><span class="mbar bad"><i id="m-api"></i></span><span class="mv" id="mv-api"></span></div>
         <p class="hint" id="m-note"></p>
       </div>
-      <div class="flow" id="flow" role="tablist" aria-label="View as">
-        <button type="button" role="tab" class="node see" data-p="browser" aria-selected="true"><b>Your browser</b><span class="nv">Plaintext</span></button>
+      <div class="flow" id="flow" role="group" aria-label="See what each party sees">
+        <button type="button" class="node see" data-p="browser" aria-pressed="true"><b>Your browser</b><span class="nv">Plaintext</span></button>
         <span class="wirel" aria-hidden="true"><i class="pkt"></i></span>
-        <button type="button" role="tab" class="node cipher" data-p="gateway" aria-selected="false"><b>NEAR AI gateway</b><span class="nv">Ciphertext</span></button>
+        <button type="button" class="node cipher" data-p="gateway" aria-pressed="false"><b>NEAR AI gateway</b><span class="nv">Ciphertext</span></button>
         <span class="wirel" aria-hidden="true"><i class="pkt"></i></span>
-        <button type="button" role="tab" class="node see enclave" data-p="enclave" aria-selected="false"><b>The enclave</b><span class="nv">Plaintext</span></button>
-        <button type="button" role="tab" class="node none off" data-p="prompt20" aria-selected="false"><b>prompt20.com</b><span class="nv">Not on the path</span></button>
+        <button type="button" class="node see enclave" data-p="enclave" aria-pressed="false"><b>The enclave</b><span class="nv">Plaintext</span></button>
+        <button type="button" class="node none off" data-p="prompt20" aria-pressed="false"><b>prompt20.com</b><span class="nv">Not on the path</span></button>
       </div>
       <div class="lens">
         <div class="lens-h"><span id="lens-title">What your browser sees</span><span class="grow"></span><button type="button" class="link" id="replay-flow">Replay</button></div>
@@ -158,7 +158,7 @@
       </div>
 
       <div class="break">
-        <h3>Try to break it <span class="sub">Real checks, real attacks.</span></h3>
+        <h3>Try to break it</h3>
         <div class="break-b">
           <button type="button" class="btn ghost" id="tamper" title="Flip one byte of the encrypted reply">Tamper with the reply</button>
           <button type="button" class="btn ghost" id="wrongkey" title="Swap in a key the hardware quote does not contain">Use a fake lock</button>

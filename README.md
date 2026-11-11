@@ -9,15 +9,15 @@ Verifiable private AI in the browser. Before your prompt leaves, the page checks
 | Party | Sees | Why |
 |---|---|---|
 | Your browser | Plaintext | You type it. It is encrypted here, only after the enclave checks pass. |
-| prompt20.com | Nothing | The page calls NEAR AI directly. Its Content-Security-Policy blocks every other destination, including analytics. |
+| prompt20.com | Nothing | The page sends your message and key only to NEAR AI. prompt20.com receives only the public hardware proof, to pass to Intel and NVIDIA, and the page loads no analytics. |
 | NEAR AI's gateway | Ciphertext and metadata | Each message is encrypted to the enclave key. The gateway still sees the model, sizes, timing and your API key. |
 | The enclave | Plaintext | Only the holder of the key named in the hardware quote, with this run's nonce, can decrypt. |
 
-The page shows what you wrote beside the exact request body the gateway received. In our browser tests, none of 16 encrypted chat requests contained any of the prompt's text.
+Click any party to see exactly what it sees, including the real request body the gateway received. A **Standard AI API** toggle shows the same message in the usual request format, with a meter: in this lab 0 characters of the message are readable by the receiving service; in a standard API call, all of them are. Metadata (model, sizes, timing, IP, API key) is visible in both. In our browser tests, none of 16 encrypted chat requests contained any of the prompt's text.
 
 ## The send gate
 
-Nothing is sent until these pass, and every check runs again on any receipt:
+Steps 1 to 4 must pass before anything is sent. Steps 5 and 6 check the reply. All six run again on any receipt:
 
 1. **Enclave checked.** The model runs in its own TEE on NEAR AI (not an outside provider). dstack's event log replays to the quote's RTMR3, so the enclave app id and compose hash are measured, and it is not a debug enclave. Intel's DCAP chain accepts the TDX quote. NVIDIA's attestation tokens are verified in the page against NVIDIA's published keys: this nonce, debug off, secure boot on.
 2. **Fresh challenge.** The quote and the GPU evidence both contain a random nonce made for this run.
@@ -41,11 +41,11 @@ The page runs four attacks against the real checks. Each is refused, and the gat
 
 **Ask privately.** Send any sensitive message. The recorded sample is a fictional patient's lab results.
 
-**Optimise a prompt privately.** A company's system prompt is product IP. The lab shortens it in the enclave and runs your test cases on both versions, all encrypted. It gives two separate verdicts: **VERIFIED** (the proof holds) and **Safe to adopt** (no test the original passes fails on the new prompt). Two recorded runs of a fictional support-agent prompt with 7 tests:
+**Optimise a prompt privately.** A company's system prompt is product IP. The lab shortens it in the enclave and runs your test cases on both versions, all encrypted. It gives two separate verdicts: **VERIFIED** (the proof holds) and **Passes your tests** (no test the original passes fails on the new prompt). Two recorded runs of a fictional support-agent prompt with 7 tests:
 
 | Run | Tokens per call | Tests | Verdicts |
 |---|---|---|---|
-| Careful (keep every rule) | 580 to 311, 46% fewer | 7 of 7 | VERIFIED, safe to adopt |
+| Careful (keep every rule) | 580 to 311, 46% fewer | 7 of 7 | VERIFIED, passes your tests |
 | Extreme (40-word budget) | 580 to 129, 78% fewer | 3 of 7 | VERIFIED, 4 regressions caught: the sign-off dropped twice, "contact the merchant" lost from late refunds, and a fraud report no longer escalates |
 
 ## Try it

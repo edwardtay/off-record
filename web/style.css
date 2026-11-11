@@ -134,7 +134,7 @@ footer a { color:#c2410c; }
 .node.see { border-top-color:#0f172a; }
 .node.cipher { border-top-color:var(--accent); } .node.cipher .nv { color:#c2410c; }
 .node.none { border-top-color:var(--ok); } .node.none .nv { color:var(--ok); font-size:13px; }
-.node[aria-selected="true"] { border-color:var(--sp-ink); box-shadow:0 0 0 3px rgba(234,88,12,.25); }
+.node[aria-pressed="true"] { border-color:var(--sp-ink); box-shadow:0 0 0 3px rgba(234,88,12,.25); }
 .node.lit { transform:translateY(-2px); }
 .node.off { grid-column:3; grid-row:2; border-style:dashed; border-top-style:dashed; opacity:.9; }
 .node.enclave.checking { animation:pulse 1s ease-in-out infinite; }
@@ -193,3 +193,6 @@ details.more .sp-cta { margin-top:8px; width:100%; }
 .flow.api .node.off { border-style:solid; } .flow.api .node.off .nv { color:var(--bad); }
 .lens-box .leak { background:var(--bad-bg); color:var(--bad); }
 .flow.api .node.off { border-top-color:var(--bad); }
+
+@media (prefers-reduced-motion:reduce) { .node, .mbar i, .gate li { transition:none; } .node.lit { transform:none; } }
+@media (max-width:640px) { input[type=password], input[type=text], input[type=number], textarea, select { font-size:16px; } }

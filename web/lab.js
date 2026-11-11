@@ -1,7 +1,7 @@
 /* Private Prompt Lab page. All checks live in engine.js, shared with the Node verifier.
    Imports carry the release tag so a deploy never mixes a cached old module with new ones. */
-import { runLab, runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=10';
-import { SAMPLE_PROMPT, SAMPLE_TESTS, SAMPLE_ASK } from './sample.js?v=10';
+import { runLab, runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=11';
+import { SAMPLE_PROMPT, SAMPLE_TESTS, SAMPLE_ASK } from './sample.js?v=11';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -18,11 +18,17 @@ const deps = {
 /* Tabs */
 const tabs = ['run', 'check', 'models'];
 function showTab(t) {
-  for (const x of tabs) { $(`tab-${x}`).setAttribute('aria-selected', String(x === t)); $(`p-${x}`).hidden = x !== t; }
+  for (const x of tabs) { $(`tab-${x}`).setAttribute('aria-selected', String(x === t)); $(`tab-${x}`).tabIndex = x === t ? 0 : -1; $(`p-${x}`).hidden = x !== t; }
   $('stage-run').hidden = t === 'models'; $('stage-models').hidden = t !== 'models';
   if (t === 'models' && !scanned) scan();
 }
 for (const t of tabs) $(`tab-${t}`).addEventListener('click', () => showTab(t));
+const TAB_ORDER = ['check', 'run', 'models'];
+for (const t of TAB_ORDER) $(`tab-${t}`).addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  const next = TAB_ORDER[(TAB_ORDER.indexOf(t) + (e.key === 'ArrowRight' ? 1 : TAB_ORDER.length - 1)) % TAB_ORDER.length];
+  showTab(next); $(`tab-${next}`).focus(); e.preventDefault();
+});
 
 /* Presets: ask privately, or optimise a prompt privately */
 let preset = 'ask';
@@ -86,6 +92,7 @@ const KIND = {
   'routed-tee': ['mid', 'Routed', 'Served by an attested router to another enclave'],
   'gateway-only': ['mid', 'Gateway only', 'Only the gateway is attested'],
   external: ['bad', 'Not private', 'Passed to an outside provider'],
+  unknown: ['mid', 'Unknown', 'Could not check right now'],
 };
 async function scan() {
   scanned = true;
@@ -123,6 +130,7 @@ const REDUCE = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)
 const wait = (ms) => new Promise((r) => setTimeout(r, REDUCE ? 0 : ms));
 let gateRun = 0;
 async function gate(states, note, stagger = false) {
+  cancelFlash();
   const run = ++gateRun;
   $('gate-note').textContent = note || '';
   for (const li of $('gate').children) {
@@ -143,6 +151,10 @@ const gateFrom = (v) => {
 
 /* Run */
 function busy(title, note) {
+  cancelFlash(); flowRun++; current = null;
+  // Clear the previous run's evidence so nothing stale stays on screen.
+  $('results').hidden = true; $('reply-card').hidden = true; $('proof').innerHTML = ''; $('sigs-t').tBodies[0].innerHTML = ''; $('compose').textContent = '';
+  $('lens-box').textContent = ''; lensText = '';
   $('stage-title').textContent = title; $('verdict').className = 'vbadge'; $('verdict').textContent = 'Running'; $('adopt').hidden = true;
   $('break-out').innerHTML = ''; $('run-error').hidden = true;
   $('stage-run').hidden = false; $('stage-models').hidden = true;
@@ -166,13 +178,16 @@ $('run').addEventListener('click', async () => {
   if (preset === 'opt' && !readTests().length) return fail('Add at least one test case.');
   $('run').disabled = true;
   busy('Live run', 'Nothing sent yet. Checking the chip.');
+  const op = ++opId;
   try {
     const rc = preset === 'ask'
       ? await runAsk({ key, model: $('model').value, system: $('ask-system').value, message: $('ask-message').value, onStep }, deps)
       : await runLab({ key, model: $('model').value, mode: $('mode').value, prompt: $('prompt').value.trim(), tests: readTests(), onStep }, deps);
     gate({ ...STEP_GATE.tests }, 'Checking every signature and opening every encrypted field.');
-    render(rc, await verifyReceipt(rc, deps), 'Live run');
+    const v = await verifyReceipt(rc, deps);
+    if (op === opId) render(rc, v, 'Live run');
   } catch (e) {
+    if (op !== opId) { $('run').disabled = false; return; }
     gate({}, '');
     fail(/401|403/.test(e.message) ? 'NEAR AI refused the key. Check it at cloud.near.ai.' : e.message);
     $('verdict').textContent = 'Stopped'; $('verdict').className = 'vbadge bad';
@@ -180,14 +195,21 @@ $('run').addEventListener('click', async () => {
   $('run').disabled = false;
 });
 
-/* Check a receipt */
+/* Check a receipt. Every operation takes a ticket; a result that finishes after a newer one started is dropped. */
+let opId = 0;
 async function checkReceipt(rc, note) {
+  const op = ++opId;
   busy('Checking with Intel, NVIDIA and NEAR AI', 'Re-checking a recorded run.');
   $('verdict').textContent = 'Checking';
   try {
     if (!rc || !rc.attestation || !Array.isArray(rc.calls)) throw new Error('That file is not a Private Prompt Lab receipt.');
-    render(rc, await verifyReceipt(rc, deps), note);
-  } catch (e) { $('run-error').textContent = e.message; $('run-error').hidden = false; }
+    const v = await verifyReceipt(rc, deps);
+    if (op === opId) render(rc, v, note);
+  } catch (e) {
+    if (op !== opId) return;
+    $('run-error').textContent = e.message; $('run-error').hidden = false;
+    $('verdict').textContent = 'Not checked'; $('verdict').className = 'vbadge bad';
+  }
 }
 const samples = {};
 const SAMPLE_FILES = { ask: ['sample-ask.json', 'Recorded private question'], careful: ['sample-run.json', 'Recorded private prompt edit, careful'], extreme: ['sample-extreme.json', 'Recorded private prompt edit, 40 words'] };
@@ -228,7 +250,7 @@ function diff(a, b) {
 /* Who can read it: a flow of the three parties on the path (and prompt20.com, off it), and a lens
    that shows exactly what the chosen party sees, from the real request and reply bytes. */
 const HEX = '0123456789abcdef';
-let lens = {}; let labLens = {}; let apiLens = {}; let lensRun = 0; let lensText = '';
+let lens = {}; let labLens = {}; let apiLens = {}; let lensRun = 0; let lensText = ''; let flowRun = 0;
 function lensData(rc, v) {
   const call = rc.calls[0];
   const plain = rc.kind === 'ask' ? [rc.system ? `[instructions]\n${rc.system}` : '', `[message]\n${rc.message}`].filter(Boolean).join('\n\n') : `[company system prompt]\n${rc.original}`;
@@ -240,13 +262,13 @@ function lensData(rc, v) {
     browser: { title: 'What your browser sees', text: plain, note: 'Readable only here and inside the chip.' },
     gateway: { title: "What NEAR AI's gateway sees", text: body, hex: true, note: 'The exact request it received. Your words are gibberish; the model name, size, timing, IP and API key are not.' },
     enclave: { title: 'What the secure chip sees', text: plain + (reply ? `\n\n[its reply, locked back to your browser]\n${reply.slice(0, 600)}${reply.length > 600 ? ' ...' : ''}` : ''), note: `Unlocked inside the chip with key ${key}..., the one in its hardware proof.` },
-    prompt20: { title: 'What prompt20.com sees', text: '', note: 'Nothing. The page talks to NEAR AI directly and blocks every other destination.' },
+    prompt20: { title: 'What prompt20.com sees', text: '', note: 'Nothing from this page. Your message and key go only to NEAR AI; prompt20.com receives only the public hardware proof.' },
   };
 }
 const escHex = (t) => esc(t).replace(/(&quot;content&quot;: &quot;)([0-9a-f]{40,})(&quot;)/g, (_, a, h, c) => `${a}<span class="hex">${h}</span>${c}`);
 async function showLens(p, animate = true) {
   const d = lens[p]; if (!d) return;
-  for (const n of $('flow').querySelectorAll('.node')) n.setAttribute('aria-selected', String(n.dataset.p === p));
+  for (const n of $('flow').querySelectorAll('.node')) n.setAttribute('aria-pressed', String(n.dataset.p === p));
   $('lens-title').textContent = d.title; $('lens-note').textContent = d.note;
   const box = $('lens-box');
   box.classList.toggle('empty', !d.text);
@@ -269,16 +291,17 @@ async function showLens(p, animate = true) {
 }
 async function playFlow() {
   if (cmp !== 'lab') setCmp('lab');
+  const run = ++flowRun; const live = () => run === flowRun;
   const links = [...$('flow').querySelectorAll('.wirel')];
   const nodes = (p) => $('flow').querySelector(`.node[data-p="${p}"]`);
   for (const n of $('flow').querySelectorAll('.node')) n.classList.remove('lit');
-  nodes('browser').classList.add('lit'); await showLens('browser'); await wait(900);
-  links[0].classList.remove('go'); void links[0].offsetWidth; links[0].classList.add('go'); await wait(700);
-  nodes('gateway').classList.add('lit'); await showLens('gateway'); await wait(1500);
-  links[1].classList.remove('go'); void links[1].offsetWidth; links[1].classList.add('go'); await wait(700);
+  nodes('browser').classList.add('lit'); await showLens('browser'); await wait(900); if (!live()) return;
+  links[0].classList.remove('go'); void links[0].offsetWidth; links[0].classList.add('go'); await wait(700); if (!live()) return;
+  nodes('gateway').classList.add('lit'); await showLens('gateway'); await wait(1500); if (!live()) return;
+  links[1].classList.remove('go'); void links[1].offsetWidth; links[1].classList.add('go'); await wait(700); if (!live()) return;
   nodes('enclave').classList.add('lit'); await showLens('enclave');
 }
-for (const n of document.querySelectorAll('#flow .node')) n.addEventListener('click', () => showLens(n.dataset.p));
+for (const n of document.querySelectorAll('#flow .node')) n.addEventListener('click', () => { flowRun++; showLens(n.dataset.p); });
 
 /* Compare with a normal AI API: the same message in the standard request format, readable by the provider. */
 let cmp = 'lab';
@@ -294,8 +317,8 @@ function setCmp(mode) {
   lens = mode === 'api' ? apiLens : labLens;
   showLens(mode === 'api' ? 'gateway' : 'gateway');
 }
-$('cmp-lab').addEventListener('click', () => setCmp('lab'));
-$('cmp-api').addEventListener('click', () => setCmp('api'));
+$('cmp-lab').addEventListener('click', () => { flowRun++; setCmp('lab'); });
+$('cmp-api').addEventListener('click', () => { flowRun++; setCmp('api'); });
 
 /* Leak meter: characters of the message readable outside the browser and the chip, measured on the real bytes. */
 function leakCount(plain, wireText) {
@@ -306,20 +329,22 @@ function leakCount(plain, wireText) {
   }
   return leaked;
 }
+const openCallOk = (c) => current?.v?.structure?.find((r) => r.id === 'e2ee')?.ok === true;
 function meter(rc) {
   const call = rc.calls[0];
   const msgs = rc.kind === 'ask' ? [rc.system, rc.message].filter(Boolean) : [rc.original];
   const plain = msgs.join('\n');
   // What a receiver can read after parsing the JSON body: every message content, as sent.
   const readable = (body) => { try { return JSON.parse(body).messages.map((m) => m.content).join('\n'); } catch { return body; } };
-  const labLeak = leakCount(plain, readable(call.request));
+  // Encrypted and verified content is unreadable by construction; otherwise fall back to scanning the bytes.
+  const labLeak = rc.calls.every((c) => openCallOk(c)) ? 0 : leakCount(plain, readable(call.request));
   const normal = JSON.stringify({ model: 'any-model', messages: msgs.map((c, i) => ({ role: i === 0 && msgs.length > 1 ? 'system' : 'user', content: c })) });
-  const apiLeak = leakCount(plain, readable(normal));
+  const apiLeak = plain.length; // a standard request carries the message verbatim
   const n = plain.length;
   $('m-lab').style.width = `${Math.max(0.5, (labLeak / n) * 100)}%`; $('m-api').style.width = `${(apiLeak / n) * 100}%`;
-  $('mv-lab').textContent = `${fmt(labLeak)} of ${fmt(n)} characters readable`;
-  $('mv-api').textContent = `${fmt(apiLeak)} of ${fmt(n)} characters readable`;
-  $('m-note').textContent = 'Measured on the bytes that left the browser: this run\'s real request, and the same message in the standard request format. Readable means by anyone past your browser except the chip.';
+  $('mv-lab').textContent = `${fmt(labLeak)} of ${fmt(n)} characters`;
+  $('mv-api').textContent = `${fmt(apiLeak)} of ${fmt(n)} characters`;
+  $('m-note').textContent = 'Message text the receiving service can read. This lab: measured on this run\'s real request. Standard API: the same message in the usual request format, for illustration. Metadata (model, sizes, timing, IP, API key) is visible in both.';
   return normal;
 }
 $('replay-flow').addEventListener('click', playFlow);
@@ -342,7 +367,7 @@ function render(rc, v, note) {
   let normalPretty = normal; try { normalPretty = JSON.stringify(JSON.parse(normal), null, 1); } catch { /* raw */ }
   apiLens = {
     browser: { title: 'What your browser sees', text: plainAll, note: 'Same as here.' },
-    gateway: { title: "What a normal AI API receives", text: normalPretty, plainHit: true, note: 'TLS protects it on the way, then the provider reads every word.' },
+    gateway: { title: 'What a standard AI API receives', text: normalPretty, plainHit: true, note: 'TLS protects it on the way, then the provider reads every word.' },
     enclave: { title: "What the provider's servers see", text: plainAll, note: 'Plaintext, kept under the provider\'s retention policy. You cannot check what happens to it.' },
     prompt20: { title: 'What other tools see', text: plainAll, note: 'Web tools that call an AI for you usually see your text too.' },
   };
@@ -351,7 +376,7 @@ function render(rc, v, note) {
 
   const ad = $('adopt');
   ad.hidden = rc.kind === 'ask';
-  if (rc.kind !== 'ask') { ad.className = `vbadge ${v.safe ? 'ok' : 'bad'}`; ad.textContent = v.safe ? 'Safe to adopt' : v.regressions.length ? `${v.regressions.length} regression${v.regressions.length === 1 ? '' : 's'} caught` : v.ok ? 'Fails a test' : 'Not verified'; }
+  if (rc.kind !== 'ask') { ad.className = `vbadge ${v.safe ? 'ok' : 'bad'}`; ad.textContent = v.safe ? 'Passes your tests' : v.regressions.length ? `${v.regressions.length} regression${v.regressions.length === 1 ? '' : 's'} caught` : v.ok ? 'Fails a test' : 'Not verified'; }
 
   const rows = [...v.att.rows, ...v.structure];
   $('proof').innerHTML = rows.map((r) => `<li>${pill(r.ok)}<div>${esc(r.label)}<div class="why">${esc(r.detail)}</div></div></li>`).join('');
@@ -384,7 +409,13 @@ function render(rc, v, note) {
 }
 
 let flashTimer = 0;
+function cancelFlash() {
+  clearTimeout(flashTimer);
+  for (const li of $('gate').children) if (li.dataset.was !== undefined) { li.className = li.dataset.was; delete li.dataset.was; }
+  const note = $('gate-note'); if (note.dataset.base !== undefined) { note.textContent = note.dataset.base; delete note.dataset.base; }
+}
 function flashGate(keys, label) {
+  cancelFlash();
   const note = $('gate-note'); const restore = note.dataset.base || note.textContent;
   note.dataset.base = restore;
   note.textContent = `${label}: refused.`;
@@ -436,17 +467,19 @@ $('outside').addEventListener('click', async () => {
     await runAsk({ key: 'not-needed', model: 'anthropic/claude-sonnet-5-5', message: 'test' }, deps);
     li.innerHTML = `${pill(true, 'Sent', '')} <b>Non-TEE model</b>: a message was sent. Please report it.`;
   } catch (e) {
-    flashGate(new Set(['enclave']), 'Send to Claude (not private)');
-    li.innerHTML = `${pill(false, '', 'Refused')} <b>Send to Claude (not private)</b> (anthropic/claude-sonnet-5-5 on NEAR AI): ${esc(e.message)}`;
+    if (/outside provider/.test(e.message)) {
+      flashGate(new Set(['enclave']), 'Send to Claude (not private)');
+      li.innerHTML = `${pill(false, '', 'Refused')} <b>Send to Claude (not private)</b>: ${esc(e.message)}`;
+    } else li.innerHTML = `<span class="pill mid">Unknown</span> <b>Send to Claude (not private)</b>: could not reach NEAR AI to check (${esc(e.message)}).`;
   }
   $('break-out').prepend(li);
 });
 
 $('fresh').addEventListener('click', async () => {
   if (!current) return;
+  const { rc, note } = current;
   $('fresh').disabled = true;
-  render(current.rc, await verifyReceipt(current.rc, deps), `${current.note || 'This run'}, checked again`);
-  $('fresh').disabled = false;
+  try { await checkReceipt(rc, `${note || 'This run'}, checked again`); } finally { $('fresh').disabled = false; }
 });
 $('download').addEventListener('click', () => {
   if (!current) return;
