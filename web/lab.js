@@ -2,7 +2,7 @@
    encrypted in this page to the key named in the enclave's hardware quote, every reply is signed by
    that key, and every check is shown. All checks live in engine.js, shared with the Node verifier.
    Imports carry the release tag so a deploy never mixes a cached old module with new ones. */
-import { openSession, newReceipt, sendTurn, checkTurns, turnMessages, verifyReceipt, codeChecks, fetchAttestation, privacyKind, newNonce, modelAttestation, callUsage, runAsk, NEARAI, DEFAULT_MODEL } from './engine.js?v=20';
+import { openSession, newReceipt, sendTurn, checkTurns, turnMessages, verifyReceipt, codeChecks, fetchAttestation, privacyKind, newNonce, modelAttestation, callUsage, runAsk, NEARAI, DEFAULT_MODEL } from './engine.js?v=21';
 import { SAMPLE_ASK } from './sample.js?v=20';
 
 const $ = (id) => document.getElementById(id);

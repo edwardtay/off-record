@@ -12,7 +12,7 @@
 */
 
 import { newClientKeys, encryptTo, openRequestField, decryptWith, verifyEd25519 } from './e2ee.js?v=14';
-import { verifyTdxQuote, checkCollateral } from './dcap.js?v=17';
+import { verifyTdxQuote, checkCollateral } from './dcap.js?v=18';
 
 export const NEARAI = 'https://cloud-api.near.ai/v1';
 const ALGO = 'ed25519';
