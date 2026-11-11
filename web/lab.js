@@ -1,6 +1,7 @@
 /* Private Prompt Lab page. All checks live in engine.js, shared with the Node verifier. */
-import { runLab, verifyReceipt, fetchAttestation, privacyKind, newNonce, NEARAI, DEFAULT_MODEL, MODES } from './engine.js';
-import { SAMPLE_PROMPT, SAMPLE_TESTS } from './sample.js';
+// Imports carry the release tag so a deploy never mixes a cached old module with new ones.
+import { runLab, verifyReceipt, fetchAttestation, privacyKind, newNonce, NEARAI, DEFAULT_MODEL } from './engine.js?v=6';
+import { SAMPLE_PROMPT, SAMPLE_TESTS } from './sample.js?v=6';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

@@ -11,7 +11,7 @@
    }
 */
 
-import { newClientKeys, encryptTo, openRequestField, decryptWith, verifyEd25519 } from './e2ee.js';
+import { newClientKeys, encryptTo, openRequestField, decryptWith, verifyEd25519 } from './e2ee.js?v=6';
 
 export const NEARAI = 'https://cloud-api.near.ai/v1';
 const ALGO = 'ed25519';
