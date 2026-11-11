@@ -1,7 +1,8 @@
 /* Private Prompt Lab engine: runs a prompt optimisation on NEAR AI Cloud and checks
    every piece of evidence. Plain ES module with no imports, so the browser page and the
    Node scripts (verify-receipt.mjs, capture-sample.mjs) share the exact same checks.
-   Hashing uses globalThis.crypto.subtle (browsers, Node 20+).
+   Hashing uses globalThis.crypto.subtle (browsers, Node 20+). Every chat call is end-to-end
+   encrypted to the attested model key (e2ee.js), so NEAR AI's gateway relays only ciphertext.
 
    deps = {
      fetch,                          // fetch implementation
@@ -10,9 +11,12 @@
    }
 */
 
+import { newClientKeys, encryptTo, openRequestField, decryptWith, verifyEd25519 } from './e2ee.js';
+
 export const NEARAI = 'https://cloud-api.near.ai/v1';
+const ALGO = 'ed25519';
 export const DEFAULT_MODEL = 'Qwen/Qwen3.8-27B';
-export const RECEIPT_VERSION = 1;
+export const RECEIPT_VERSION = 2;
 
 const OPTIMIZER_SYSTEM = [
   'You edit system prompts for production AI apps. Goal: the same behaviour in fewer tokens.',
@@ -70,7 +74,7 @@ export async function measuredApp(m) {
 }
 
 export async function fetchAttestation(model, nonce, deps) {
-  const r = await deps.fetch(`${NEARAI}/attestation/report?model=${encodeURIComponent(model)}&signing_algo=ecdsa&nonce=${nonce}`);
+  const r = await deps.fetch(`${NEARAI}/attestation/report?model=${encodeURIComponent(model)}&signing_algo=${ALGO}&nonce=${nonce}&include_tls_fingerprint=false`, { headers: { 'x-no-aliasing': 'true' } });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) return { error: body?.error?.message || `HTTP ${r.status}` };
   return body;
@@ -123,21 +127,23 @@ export async function checkAttestation(report, nonce, model, vendor, live) {
   const kind = privacyKind(report);
   const m = modelAttestation(report, model);
   const rd = m.intel_quote ? quoteReportData(m.intel_quote) : '';
-  const addr = strip0x(m.signing_address);
+  const ed = m.signing_algo === 'ed25519';
+  const addr = strip0x(ed ? m.signing_public_key : m.signing_address);
   const app = m.intel_quote ? await measuredApp(m) : { ok: false };
   let gpuNonce = false;
   try { gpuNonce = strip0x(JSON.parse(m.nvidia_payload || '{}').nonce) === strip0x(nonce); } catch { /* no payload */ }
   rows.push({ id: 'model-tee', label: 'The model runs in its own TEE', ok: kind === 'model-tee' && (!m.model_name || m.model_name === model), detail: kind === 'model-tee' ? `${m.model_name || model} on Intel TDX with ${m.nvidia_payload ? 'NVIDIA confidential GPUs' : 'no GPU evidence'}` : `NEAR AI reports "${kind}" for this model` });
   rows.push({ id: 'nonce', label: 'The quote contains this run\'s nonce', ok: !!rd && rd.slice(64) === strip0x(nonce) && gpuNonce, detail: `nonce ${strip0x(nonce).slice(0, 16)}..., in the TDX quote and the GPU evidence` });
-  rows.push({ id: 'key-bound', label: 'The quote names the model\'s signing key', ok: !!addr && rd.slice(0, 40) === addr && /^0+$/.test(rd.slice(40, 64)), detail: `0x${addr}` });
+  const bound = ed ? addr.length === 64 && rd.slice(0, 64) === addr && strip0x(m.signing_address) === addr : !!addr && rd.slice(0, 40) === addr && /^0+$/.test(rd.slice(40, 64));
+  rows.push({ id: 'key-bound', label: 'The quote names the model\'s key', ok: bound, detail: ed ? `Ed25519 ${addr.slice(0, 16)}..., used to sign replies and to encrypt to` : `0x${addr}` });
   rows.push({ id: 'app', label: 'The event log replays to the quote\'s RTMR3', ok: app.ok && app.debug === false, detail: app.ok ? `dstack app ${app.appId}, compose hash ${String(app.composeHash).slice(0, 16)}...${app.debug ? ', DEBUG enclave' : ', not a debug enclave'}` : 'the measured app could not be confirmed' });
   rows.push({ id: 'intel', label: 'Intel TDX quote verifies', ok: !!vendor?.tdx?.verified, unreachable: !!vendor?.tdx?.unreachable, detail: vendor?.tdx?.error || `checked just now with Phala's DCAP verifier` });
   rows.push({ id: 'nvidia', label: 'NVIDIA attests the GPUs', ok: !!vendor?.gpu?.verified && strip0x(vendor.gpu.nonce) === strip0x(nonce) && vendor.gpu.noDebug, unreachable: !!vendor?.gpu?.unreachable, detail: vendor?.gpu?.error || `${vendor?.gpu?.gpus || 0} GPU${vendor?.gpu?.gpus === 1 ? '' : 's'}, NVIDIA's signed token carries this nonce, debug off, secure boot on` });
   if (live) {
     const sameApp = !!live.app?.ok && live.app.appId === app.appId;
-    rows.push({ id: 'same-app', label: 'NEAR AI serves this model from the same enclave app today', ok: sameApp, unreachable: !!live.unreachable, detail: live.unreachable ? 'NEAR AI attestation unreachable' : sameApp ? `app ${app.appId}${live.app.composeHash === app.composeHash ? ', same compose hash' : ', compose hash updated since'}` : `today NEAR AI serves app ${live.app?.appId || 'unknown'}` });
+    rows.push({ id: 'same-app', label: 'NEAR AI serves this model from the same enclave app today', ok: sameApp, unreachable: !!live.unreachable, detail: live.unreachable ? 'NEAR AI attestation unreachable' : sameApp ? `app ${app.appId}${live.app.composeHash === app.composeHash ? ', same compose hash' : `, today's instance reports compose hash ${String(live.app.composeHash).slice(0, 16)}...`}` : `today NEAR AI serves app ${live.app?.appId || 'unknown'}` });
   }
-  return { kind, signer: addr ? `0x${addr}` : null, appId: app.appId, composeHash: app.composeHash, rows };
+  return { kind, ed, signer: addr ? (ed ? addr : `0x${addr}`) : null, appId: app.appId, composeHash: app.composeHash, rows };
 }
 
 /** A fresh attestation for the model, to compare the receipt's enclave app with what NEAR AI serves now. */
@@ -149,10 +155,20 @@ async function liveApp(model, deps) {
   } catch { return { unreachable: true }; }
 }
 
-/** One chat completion, keeping the exact bytes sent and received. */
-export async function chat({ key, model, messages, maxTokens = 1500 }, deps) {
-  const request = JSON.stringify({ model, messages, temperature: 0, max_tokens: maxTokens, reasoning_effort: 'low' });
-  const r = await deps.fetch(`${NEARAI}/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: request });
+/**
+ * One end-to-end encrypted chat completion, keeping the exact bytes sent and received.
+ * Message contents are encrypted to `modelPub` (the key in the quote); the reply comes back
+ * encrypted to a one-time client key. The receipt keeps the one-time secrets ("openings") so a
+ * checker can open every field and confirm it says what the page shows.
+ */
+export async function chat({ key, model, modelPub, messages, maxTokens = 1500 }, deps) {
+  const client = newClientKeys();
+  const sealed = messages.map((m) => ({ role: m.role, ...encryptTo(modelPub, m.content) }));
+  const request = JSON.stringify({ model, messages: sealed.map((m) => ({ role: m.role, content: m.hex })), temperature: 0, max_tokens: maxTokens, reasoning_effort: 'low' });
+  const r = await deps.fetch(`${NEARAI}/chat/completions`, {
+    method: 'POST', body: request,
+    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'x-signing-algo': ALGO, 'x-client-pub-key': client.publicHex, 'x-model-pub-key': modelPub, 'x-encryption-version': '2', 'x-no-aliasing': 'true' },
+  });
   const response = await r.text();
   if (!r.ok) throw new Error(`NEAR AI ${r.status}: ${response.slice(0, 200)}`);
   const j = JSON.parse(response);
@@ -160,17 +176,33 @@ export async function chat({ key, model, messages, maxTokens = 1500 }, deps) {
   let signature = { error: 'signature not fetched' };
   for (let a = 0; a < 6; a++) {
     if (a) await new Promise((res) => setTimeout(res, 800 * a));
-    const sr = await deps.fetch(`${NEARAI}/signature/${encodeURIComponent(j.id)}?model=${encodeURIComponent(model)}&signing_algo=ecdsa`, { headers: { authorization: `Bearer ${key}` } });
+    const sr = await deps.fetch(`${NEARAI}/signature/${encodeURIComponent(j.id)}?model=${encodeURIComponent(model)}&signing_algo=${ALGO}`, { headers: { authorization: `Bearer ${key}` } });
     if (sr.ok) { signature = await sr.json(); break; }
     signature = { error: `signature HTTP ${sr.status}` };
     if (sr.status !== 404) break;
   }
-  return { id: j.id, request, response, signature };
+  return { id: j.id, request, response, signature, e2ee: { client: client.x25519Secret, openings: sealed.map((m) => m.opening) } };
 }
 
 const parse = (s) => { try { return JSON.parse(s); } catch { return null; } };
-export const replyText = (call) => parse(call?.response)?.choices?.[0]?.message?.content?.trim() ?? '';
-export const promptTokens = (call) => parse(call?.response)?.usage?.prompt_tokens ?? null;
+
+/**
+ * The plaintext of a call. For an encrypted call, every request field is opened with its one-time
+ * secret against the attested model key, and the reply is decrypted with the client key; any
+ * failure marks the call as not end-to-end encrypted to that key.
+ */
+export function openCall(call, modelPub) {
+  const req = parse(call?.request) || {};
+  const res = parse(call?.response) || {};
+  const msg = res.choices?.[0]?.message || {};
+  if (!call?.e2ee) return { e2ee: false, model: req.model, messages: req.messages || [], reply: (msg.content || '').trim(), tokens: res.usage?.prompt_tokens ?? null };
+  try {
+    const messages = (req.messages || []).map((m, i) => ({ role: m.role, content: openRequestField(modelPub, call.e2ee.openings[i], m.content) }));
+    if (messages.length !== (call.e2ee.openings || []).length) throw new Error('openings do not match the messages');
+    const reply = msg.content ? decryptWith(call.e2ee.client, msg.content).trim() : '';
+    return { e2ee: true, model: req.model, messages, reply, tokens: res.usage?.prompt_tokens ?? null };
+  } catch (e) { return { e2ee: false, broken: String(e.message || e), model: req.model, messages: [], reply: '', tokens: null }; }
+}
 
 /** Signature checks for one call: the signed text is the hash of these exact bytes, and the key is the attested one. */
 export async function checkCall(call, signer, deps) {
@@ -178,10 +210,15 @@ export async function checkCall(call, signer, deps) {
   const [hq, hr] = await Promise.all([sha256Hex(call.request), sha256Hex(call.response)]);
   const model = parse(call.request)?.model || '';
   const hashesOk = sig.text === `${hq}:${hr}` || sig.text === `${model}:${hq}:${hr}`;
-  let recovered = null;
-  try { recovered = String(deps.recover(sig.text, sig.signature)).toLowerCase(); } catch { /* bad sig */ }
-  const signerOk = !!recovered && recovered === String(sig.signing_address).toLowerCase();
-  const attestedOk = !!recovered && recovered === String(signer).toLowerCase();
+  let signerOk = false; let recovered = null;
+  if (sig.signing_algo === 'ed25519') {
+    recovered = strip0x(sig.signing_address);
+    signerOk = !!sig.signature && verifyEd25519(String(sig.text), strip0x(sig.signature), recovered);
+  } else {
+    try { recovered = String(deps.recover(sig.text, sig.signature)).toLowerCase(); } catch { /* bad sig */ }
+    signerOk = !!recovered && recovered === String(sig.signing_address).toLowerCase();
+  }
+  const attestedOk = !!recovered && strip0x(recovered) === strip0x(signer);
   return { ok: hashesOk && signerOk && attestedOk, hashesOk, signerOk, attestedOk, kind: sig.signature_kind || null, recovered };
 }
 
@@ -221,15 +258,17 @@ export async function runLab({ key, model = DEFAULT_MODEL, prompt, tests, onStep
   const att = await checkAttestation(report, nonce, model, vendor);
   const bad = att.rows.filter((r) => !r.ok);
   if (bad.length) throw new Error(`Nothing was sent: the enclave did not pass "${bad[0].label}" (${bad[0].detail}).`);
+  if (!att.ed) throw new Error('NEAR AI did not return an Ed25519 key for this model, so the prompt cannot be encrypted to it. Nothing was sent.');
+  const modelPub = att.signer;
 
   onStep('optimize', 'Optimising the prompt inside the enclave');
-  const optCall = await chat({ key, model, maxTokens: 6000, messages: [{ role: 'system', content: OPTIMIZER_SYSTEM }, { role: 'user', content: prompt }] }, deps);
-  const opt = parseOptimizer(replyText(optCall));
+  const optCall = await chat({ key, model, modelPub, maxTokens: 6000, messages: [{ role: 'system', content: OPTIMIZER_SYSTEM }, { role: 'user', content: prompt }] }, deps);
+  const opt = parseOptimizer(openCall(optCall, modelPub).reply);
   if (!opt) throw new Error('The model did not return a usable optimised prompt. Run it again.');
 
   onStep('tests', `Running ${tests.length} test case${tests.length === 1 ? '' : 's'} on both prompts`);
   const jobs = tests.flatMap((t, i) => [['original', prompt], ['optimized', opt.optimized]].map(([which, sys]) => ({ i, which, sys, t })));
-  const calls = await pool(jobs, 4, (j) => chat({ key, model, maxTokens: 1500, messages: [{ role: 'system', content: j.sys }, { role: 'user', content: j.t.input }] }, deps).then((c) => ({ ...c, role: `test-${j.i}-${j.which}` })));
+  const calls = await pool(jobs, 4, (j) => chat({ key, model, modelPub, maxTokens: 1500, messages: [{ role: 'system', content: j.sys }, { role: 'user', content: j.t.input }] }, deps).then((c) => ({ ...c, role: `test-${j.i}-${j.which}` })));
 
   return {
     version: RECEIPT_VERSION, tool: 'https://prompt20.com/tools/private-prompt/', created: new Date().toISOString(),
@@ -257,10 +296,13 @@ export async function verifyReceipt(rc, deps, { offline = false } = {}) {
   const want = ['optimize', ...tests.flatMap((_, i) => [`test-${i}-original`, `test-${i}-optimized`])];
   const roles = rc.calls.map((c) => c.role);
   const rolesOk = tests.length > 0 && roles.length === want.length && want.every((r) => roles.filter((x) => x === r).length === 1);
-  const req = (c) => parse(c?.request) || {};
+  // Every field is opened against the attested key; structure checks run on the opened plaintext.
+  const opened = new Map(rc.calls.map((c) => [c, openCall(c, att.signer)]));
+  const req = (c) => (c ? opened.get(c) : null) || { messages: [] };
   const modelOk = rc.calls.every((c) => req(c).model === rc.model);
+  const e2eeCount = rc.calls.filter((c) => req(c).e2ee).length;
   const optCall = rc.calls.find((c) => c.role === 'optimize');
-  const signed = parseOptimizer(replyText(optCall)) || {};
+  const signed = parseOptimizer(req(optCall).reply) || {};
   const optOk = signed.optimized === rc.optimized && req(optCall).messages?.[1]?.content === rc.original;
   const sentOk = rolesOk && tests.every((t, i) => ['original', 'optimized'].every((w) => {
     const msgs = req(rc.calls.find((c) => c.role === `test-${i}-${w}`)).messages || [];
@@ -268,12 +310,12 @@ export async function verifyReceipt(rc, deps, { offline = false } = {}) {
   }));
 
   const results = tests.map((t, i) => {
-    const o = rc.calls.find((c) => c.role === `test-${i}-original`);
-    const p = rc.calls.find((c) => c.role === `test-${i}-optimized`);
-    return { ...t, original: o && { reply: replyText(o), tokens: promptTokens(o), ...scoreReply(replyText(o), t) }, optimized: p && { reply: replyText(p), tokens: promptTokens(p), ...scoreReply(replyText(p), t) } };
+    const side = (w) => { const c = rc.calls.find((x) => x.role === `test-${i}-${w}`); if (!c) return null; const o = req(c); return { reply: o.reply, tokens: o.tokens, ...scoreReply(o.reply, t) }; };
+    return { ...t, original: side('original'), optimized: side('optimized') };
   });
   const saved = results.map((t) => (t.original?.tokens ?? 0) - (t.optimized?.tokens ?? 0));
   const structure = [
+    { id: 'e2ee', label: 'Every message was encrypted to the attested key', ok: e2eeCount === rc.calls.length && rc.calls.length > 0, detail: `${e2eeCount} of ${rc.calls.length} calls: each prompt field opens only with the key in the quote, each reply only with this run's one-time key` },
     { id: 'optimized', label: 'The optimised prompt shown is the one the model returned', ok: optOk, detail: 'read from the signed optimiser reply' },
     { id: 'tests', label: 'Each test ran once per prompt, with the message shown', ok: sentOk && modelOk, detail: `${tests.length} test${tests.length === 1 ? '' : 's'}, ${rc.calls.length} signed calls, all to ${rc.model}` },
   ];
