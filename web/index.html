@@ -158,7 +158,7 @@
   <ul class="plain">
     <li>NEAR AI's gateway sees metadata: your IP, timing, sizes, the model and your API key.</li>
     <li>The free demo sends through prompt20.com, which adds a demo key. It carries only ciphertext and sees your IP; NEAR AI then sees prompt20.com's address in place of yours.</li>
-    <li>You trust this page's code and NEAR AI's key handling. Attestation proves what ran, not that nothing is logged.</li>
+    <li>You trust this page's code (anyone can confirm it matches the public repository with <code>npm run check-live</code>) and NEAR AI's key handling. Attestation proves what ran, not that nothing is logged.</li>
     <li>Intel's and NVIDIA's evidence is checked in this page. prompt20.com only relays Intel's signed collateral and NVIDIA's verifier, which send no CORS headers.</li>
     <li>CPU and GPU proofs are linked only by the shared nonce.</li>
     <li>Model weights are named by a label in NEAR AI's deploy file. The engine is pinned; the weights are not measured.</li>
@@ -175,7 +175,7 @@
     <button type="button" class="btn ghost" id="download"><svg class="ic sm" aria-hidden="true"><use href="#i-down"/></svg>Download the receipt</button>
   </div>
   <p class="hint" id="compose"></p>
-  <p class="hint">Check a receipt without this page: the <a href="https://github.com/edwardtay/off-record" rel="noopener">source and a command-line verifier</a> are public, and <code>npm run verify</code> re-checks the demo chat.</p>
+  <p class="hint">Check a receipt without this page: the <a href="https://github.com/edwardtay/off-record" rel="noopener">source and a command-line verifier</a> are public. <code>npm run verify</code> re-checks the demo chat, and <code>npm run check-live</code> confirms every file of this page matches the public code.</p>
   </details>
 </section>
   </div>

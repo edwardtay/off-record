@@ -1,10 +1,13 @@
 # Off Record
 
-A private AI chat with proof on every reply. Before your first message leaves, the page checks the model's enclave on NEAR AI Cloud (Intel TDX and NVIDIA confidential GPUs). Then every message is encrypted in the browser to the key inside the enclave's hardware quote, every reply streams back encrypted to the page, and each one is checked against the enclave's signature before it gets its **Verified** badge.
+A private AI chat where you can check the privacy yourself. Your message is locked in your browser so that only a sealed chip running the AI can read it, and every reply carries the chip's signature. Your browser checks Intel's and NVIDIA's proof of that chip before anything is sent. Chat history stays on your device.
 
-- **A real chat.** Follow-up questions, streamed replies, and attachments (PDF, text, Markdown, CSV, JSON) read in the page and sent encrypted like the message. Starters for the jobs people bring to a private chat: lab results, a contract, money, something personal.
+**Why now.** NEAR AI is retiring its own Private Chat: it became read-only on 28 Sep 2026 and private.near.ai shuts down on 15 Nov 2026, deleting the conversation history it stored on NEAR's servers ([shutdown notice in its source](https://github.com/nearai/private-chat/blob/main/src/components/common/SunsetBanner.tsx)). The suggested replacement, the NEAR AI Cloud Playground, keeps no history at all. Brave Leo, which also runs on NEAR AI's enclaves, still has its own server check the enclave for the browser; [Brave's post](https://brave.com/blog/browser-ai-e2ee/) says checking in the browser comes later. Off Record is a chat people can keep using: history on the device, every proof checked in the browser.
+
+- **A real chat.** Follow-up questions, streamed replies, and attachments (PDF, text, Markdown, CSV, JSON) read in the page and sent encrypted like the message. Starters for the jobs people bring to a private chat: lab results, a contract, money, something personal. Fictional sample files let anyone try it without real data.
 - **History stays on your device.** Chats are kept in the browser (IndexedDB) and never reach a server. Each saved chat is a full receipt, so opening it re-checks every proof.
-- **Proof that holds up.** The full Intel DCAP check, NVIDIA's GPU tokens and every reply signature are verified in the page. Turn 2 is checked to have carried exactly turn 1 and its signed reply, so the conversation shown is the conversation the enclave saw.
+- **Proof that holds up.** The full Intel DCAP check, NVIDIA's GPU tokens and every reply signature are verified in the page, before the first message leaves. Turn 2 is checked to have carried exactly turn 1 and its signed reply, so the conversation shown is the conversation the enclave saw.
+- **The page itself can be checked.** `npm run check-live` fetches every file prompt20.com serves for this page and compares it with this repository, so the code doing the checking is the published code.
 
 **Live:** https://prompt20.com/tools/off-record/
 
@@ -100,6 +103,16 @@ Things we hit while building, in case they help:
 5. **The staking farm configuration needs a NEAR login session.** `/v1/staking/farm/config` rejects API keys, so a tool cannot show a live staking quote without the user signing in.
 6. **One VM serves many models, and only the deploy log says which container is which.** On 2026-11-11 the Qwen3.8-27B enclave's deploy log listed 48 running services, including several other models. Each model has its own key, but the hardware measurement covers the compose manager, so a verifier must check the deploy log (a second quote) to learn which engine serves a model. Documenting this next to the attestation API would help.
 
+## Check the page itself
+
+The checks run in code that prompt20.com serves, so the question is whether that code is this repository's. At any commit:
+
+```sh
+npm run check-live
+```
+
+It fetches every file under `web/` from https://prompt20.com/tools/off-record/ and compares SHA-256 hashes with the checkout, printing `MATCH` or `DIFFERS` per file. The page's Content-Security-Policy allows scripts only from prompt20.com, and every script it loads is in `web/`. Two shared site stylesheets (`/tools/tool.css`, `/tools/splash.css`) come from the prompt20 site and are outside this check. The demo relay runs on the server, so it cannot be hashed from outside; it only ever receives ciphertext, and a reply it changed would fail its signature.
+
 ## Run it locally
 
 Node 20 or later.
@@ -107,6 +120,7 @@ Node 20 or later.
 ```sh
 npm install
 npm test                # 25 offline tests, run in CI: the recorded run, the attacks, Intel collateral
+npm run check-live      # the live page's files match this checkout, file by file
 npm run verify          # the recorded two-turn chat, no key: asks Intel, NVIDIA and NEAR AI now
 npm run tamper          # flip one byte in the reply first: prints NOT VERIFIED and exits 1
 npm run swap-message    # rewrite the message in the receipt: NOT VERIFIED

@@ -9,6 +9,7 @@
     "test": "node --test test/",
     "start": "node scripts/serve.mjs",
     "verify": "node scripts/verify-receipt.mjs web/sample-chat.json",
+    "check-live": "node scripts/check-live.mjs",
     "swap-message": "node scripts/verify-receipt.mjs web/sample-chat.json --swap-message",
     "tamper": "node scripts/verify-receipt.mjs web/sample-chat.json --tamper",
     "capture": "node scripts/capture-sample.mjs",
