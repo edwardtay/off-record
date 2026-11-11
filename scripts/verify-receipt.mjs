@@ -27,8 +27,11 @@ for (const r of v.att.rows) console.log(`${mark(r.ok)}  ${r.label}  (${r.detail}
 console.log(`${mark(v.calls.every((c) => c.ok))}  ${v.calls.filter((c) => c.ok).length}/${v.calls.length} replies signed by the attested key over their exact bytes`);
 for (const c of v.calls.filter((x) => !x.ok)) console.log(`      ${c.role}: hashes ${c.hashesOk}, signer ${c.signerOk}, attested ${c.attestedOk}`);
 for (const r of v.structure) console.log(`${mark(r.ok)}  ${r.label}  (${r.detail})`);
+if (rc.kind === 'ask') console.log(`\nReply (decrypted): ${String(v.reply).replace(/\s+/g, ' ').slice(0, 300)}`);
+else {
 console.log(`\nTokens per call: ${v.tokens.original} -> ${v.tokens.optimized} (saves ${v.tokens.savedPerCall})`);
 v.tests.forEach((t, i) => console.log(`Test ${i + 1}: original ${t.original.pass ? 'pass' : 'FAIL'}, optimised ${t.optimized.pass ? 'pass' : 'FAIL'}  ${t.optimized.fails.join('; ')}`));
 console.log(`\nAdoption: ${v.safe ? 'SAFE TO ADOPT, every test passes on the optimised prompt' : `NOT SAFE, ${v.regressions.length} regression(s): ${v.regressions.map((r) => `test ${r.i + 1}`).join(', ')}`}`);
+}
 console.log(`\n${v.ok ? 'VERIFIED' : v.offline ? 'NOT VERIFIED (offline: vendor checks skipped)' : v.unreachable ? 'NOT VERIFIED (a verifier could not be reached; try again)' : 'NOT VERIFIED'}`);
 process.exit(v.ok ? 0 : 1);

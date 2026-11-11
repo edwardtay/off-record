@@ -6,7 +6,7 @@
    Wire format of an encrypted field, hex: ephemeral X25519 public key (32) | nonce (24) | ciphertext + tag.
    Key: HKDF-SHA256(X25519(ephemeral, model key as X25519), no salt, info "ed25519_encryption", 32 bytes).
    Cipher: XChaCha20-Poly1305. */
-import { ed25519, x25519, edwardsToMontgomeryPub, edwardsToMontgomeryPriv, hkdf, sha256, xchacha20poly1305, randomBytes } from './vendor/noble.js?v=6';
+import { ed25519, x25519, edwardsToMontgomeryPub, edwardsToMontgomeryPriv, hkdf, sha256, xchacha20poly1305, randomBytes } from './vendor/noble.js?v=7';
 
 const INFO = new TextEncoder().encode('ed25519_encryption');
 const toHex = (b) => [...b].map((x) => x.toString(16).padStart(2, '0')).join('');

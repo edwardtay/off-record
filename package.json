@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Optimise a system prompt inside a NEAR AI Cloud TEE and check the hardware proof and signatures yourself.",
+  "description": "Verifiable private AI: check a NEAR AI Cloud enclave, encrypt your prompt to its attested key, verify the signed reply.",
   "license": "MIT",
   "scripts": {
     "start": "node scripts/serve.mjs",
@@ -12,7 +12,8 @@
     "tamper": "node scripts/verify-receipt.mjs web/sample-run.json --tamper",
     "capture": "node scripts/capture-sample.mjs",
     "sync": "./sync.sh",
-    "verify:extreme": "node scripts/verify-receipt.mjs web/sample-extreme.json"
+    "verify:extreme": "node scripts/verify-receipt.mjs web/sample-extreme.json",
+    "verify:ask": "node scripts/verify-receipt.mjs web/sample-ask.json"
   },
   "dependencies": {
     "@noble/ciphers": "^1.3.0",

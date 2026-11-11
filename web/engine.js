@@ -11,7 +11,7 @@
    }
 */
 
-import { newClientKeys, encryptTo, openRequestField, decryptWith, verifyEd25519 } from './e2ee.js?v=6';
+import { newClientKeys, encryptTo, openRequestField, decryptWith, verifyEd25519 } from './e2ee.js?v=7';
 
 export const NEARAI = 'https://cloud-api.near.ai/v1';
 const ALGO = 'ed25519';
@@ -175,7 +175,7 @@ export async function checkAttestation(report, nonce, model, vendor, live) {
   rows.push({ id: 'nvidia', label: 'NVIDIA attests the GPUs', ok: !!vendor?.gpu?.verified && strip0x(vendor.gpu.nonce) === strip0x(nonce) && vendor.gpu.noDebug, unreachable: !!vendor?.gpu?.unreachable, detail: vendor?.gpu?.error || `${vendor?.gpu?.gpus || 0} GPU${vendor?.gpu?.gpus === 1 ? '' : 's'}, each token's NVIDIA signature checked here, this nonce, debug off, secure boot on` });
   if (live) {
     const sameApp = !!live.app?.ok && live.app.appId === app.appId;
-    rows.push({ id: 'same-app', label: 'NEAR AI serves this model from the same enclave app today', ok: sameApp, unreachable: !!live.unreachable, detail: live.unreachable ? 'NEAR AI attestation unreachable' : sameApp ? `app ${app.appId}${live.app.composeHash === app.composeHash ? ', same compose hash' : `, today's instance reports compose hash ${String(live.app.composeHash).slice(0, 16)}...`}` : `today NEAR AI serves app ${live.app?.appId || 'unknown'}` });
+    rows.push({ id: 'same-app', label: 'NEAR AI reports the same enclave app for this model today', ok: sameApp, unreachable: !!live.unreachable, detail: live.unreachable ? 'NEAR AI attestation unreachable' : sameApp ? `app ${app.appId}${live.app.composeHash === app.composeHash ? ', same compose hash' : `, today's instance reports compose hash ${String(live.app.composeHash).slice(0, 16)}...`}` : `today NEAR AI serves app ${live.app?.appId || 'unknown'}` });
   }
   return { kind, ed, signer: addr ? (ed ? addr : `0x${addr}`) : null, appId: app.appId, composeHash: app.composeHash, rows };
 }
@@ -285,7 +285,7 @@ export async function runLab({ key, model = DEFAULT_MODEL, prompt, tests, mode =
   const nonce = newNonce();
   onStep('attest', 'Asking NEAR AI for a fresh hardware attestation');
   const report = await fetchAttestation(model, nonce, deps);
-  if (report.error) throw new Error(`Attestation failed: ${report.error}`);
+  if (report.error) throw new Error(/external provider/i.test(report.error) ? `Refused before sending: NEAR AI runs ${model} at an outside provider, not in its own TEE. Nothing was sent.` : `Attestation failed, nothing was sent: ${report.error}`);
   if (privacyKind(report) !== 'model-tee') throw new Error(`${model} does not run in its own TEE on NEAR AI Cloud. Pick a model marked Private.`);
   onStep('vendor', 'Checking the quote with Intel and the GPUs with NVIDIA');
   const vendor = await vendorChecks(modelAttestation(report, model), deps);
@@ -297,7 +297,11 @@ export async function runLab({ key, model = DEFAULT_MODEL, prompt, tests, mode =
 
   onStep('optimize', 'Optimising the prompt inside the enclave');
   const optCall = await chat({ key, model, modelPub, maxTokens: 6000, messages: [{ role: 'system', content: optimizerSystem(mode) }, { role: 'user', content: prompt }] }, deps);
-  const opt = parseOptimizer(openCall(optCall, modelPub).reply);
+  // Authenticate the optimiser's reply before its output is used in any further call.
+  const optCheck = await checkCall(optCall, modelPub, deps);
+  const optOpen = openCall(optCall, modelPub);
+  if (!optCheck.ok || !optOpen.e2ee) throw new Error('The optimiser reply did not verify (signature or encryption), so no test calls were sent.');
+  const opt = parseOptimizer(optOpen.reply);
   if (!opt) throw new Error('The model did not return a usable optimised prompt. Run it again.');
 
   onStep('tests', `Running ${tests.length} test case${tests.length === 1 ? '' : 's'} on both prompts`);
@@ -306,10 +310,28 @@ export async function runLab({ key, model = DEFAULT_MODEL, prompt, tests, mode =
 
   return {
     version: RECEIPT_VERSION, tool: 'https://prompt20.com/tools/private-prompt/', created: new Date().toISOString(),
-    model, mode, nonce, attestation: report,
+    kind: 'optimize', model, mode, nonce, attestation: report,
     original: prompt, optimized: opt.optimized, tests,
     calls: [{ ...optCall, role: 'optimize' }, ...calls],
   };
+}
+
+/** Ask one sensitive question privately: same checks before sending, one encrypted call, a receipt. */
+export async function runAsk({ key, model = DEFAULT_MODEL, system = '', message, onStep = () => {} }, deps) {
+  const nonce = newNonce();
+  onStep('attest', 'Asking NEAR AI for a fresh hardware attestation');
+  const report = await fetchAttestation(model, nonce, deps);
+  if (report.error) throw new Error(/external provider/i.test(report.error) ? `Refused before sending: NEAR AI runs ${model} at an outside provider, not in its own TEE. Nothing was sent.` : `Attestation failed, nothing was sent: ${report.error}`);
+  if (privacyKind(report) !== 'model-tee') throw new Error(`${model} does not run in its own TEE on NEAR AI Cloud. Nothing was sent.`);
+  onStep('vendor', 'Checking the quote with Intel and the GPUs with NVIDIA');
+  const att = await checkAttestation(report, nonce, model, await vendorChecks(modelAttestation(report, model), deps));
+  const bad = att.rows.filter((r) => !r.ok);
+  if (bad.length) throw new Error(`Nothing was sent: the enclave did not pass "${bad[0].label}" (${bad[0].detail}).`);
+  if (!att.ed) throw new Error('NEAR AI did not return an Ed25519 key for this model, so the message cannot be encrypted to it. Nothing was sent.');
+  onStep('optimize', 'Sending your message, encrypted to the enclave key');
+  const messages = [...(system.trim() ? [{ role: 'system', content: system }] : []), { role: 'user', content: message }];
+  const call = await chat({ key, model, modelPub: att.signer, maxTokens: 3000, messages }, deps);
+  return { version: RECEIPT_VERSION, kind: 'ask', tool: 'https://prompt20.com/tools/private-prompt/', created: new Date().toISOString(), model, nonce, attestation: report, system, message, calls: [{ ...call, role: 'ask' }] };
 }
 
 /**
@@ -323,6 +345,19 @@ export async function verifyReceipt(rc, deps, { offline = false } = {}) {
   if (offline) att.rows.filter((r) => r.id === 'intel' || r.id === 'nvidia').forEach((r) => { r.detail = 'not checked (offline)'; });
 
   const calls = await Promise.all(rc.calls.map(async (c) => ({ role: c.role, id: c.id, ...(await checkCall(c, att.signer, deps)) })));
+
+  if (rc.kind === 'ask') {
+    const call = rc.calls.length === 1 && rc.calls[0].role === 'ask' ? rc.calls[0] : null;
+    const o = call ? openCall(call, att.signer) : { messages: [] };
+    const want = [...(String(rc.system || '').trim() ? [rc.system] : []), rc.message];
+    const sentOk = !!call && o.model === rc.model && o.messages.length === want.length && o.messages.every((m, i) => m.content === want[i]);
+    const structure = [
+      { id: 'e2ee', label: 'The message was encrypted to the attested key', ok: !!o.e2ee, detail: 'opens only with the key in the quote; the reply only with this run\'s one-time key' },
+      { id: 'ask', label: 'The message and reply shown are the ones signed', ok: sentOk, detail: `1 signed call to ${rc.model}` },
+    ];
+    const allOk = !offline && att.rows.every((r) => r.ok) && calls.every((c) => c.ok) && structure.every((r) => r.ok);
+    return { ok: allOk, unreachable: att.rows.some((r) => !r.ok && r.unreachable), offline, att, calls, structure, tests: [], regressions: [], safe: null, reply: o.reply, signed: { changes: [], kept: [] }, tokens: { original: null, optimized: null, savedPerCall: 0 } };
+  }
 
   // Structure: one optimiser call, then exactly one original and one optimised call per test, each
   // sending the prompt and test message it claims, all to the receipt's model.
@@ -358,7 +393,7 @@ export async function verifyReceipt(rc, deps, { offline = false } = {}) {
   const allOk = !offline && att.rows.every((r) => r.ok) && calls.every((c) => c.ok) && structure.every((r) => r.ok);
   const unreachable = att.rows.some((r) => !r.ok && r.unreachable);
   return {
-    ok: allOk, unreachable, offline, att, calls, structure, tests: results, regressions, safe: regressions.length === 0 && results.every((t) => t.optimized?.pass),
+    ok: allOk, unreachable, offline, att, calls, structure, tests: results, regressions, safe: allOk && regressions.length === 0 && results.every((t) => t.optimized?.pass),
     signed: { changes: Array.isArray(signed.changes) ? signed.changes : [], kept: Array.isArray(signed.kept) ? signed.kept : [] },
     tokens: { original: results[0]?.original?.tokens ?? null, optimized: results[0]?.optimized?.tokens ?? null, savedPerCall: saved.length ? Math.round(saved.reduce((a, b) => a + b, 0) / saved.length) : 0 },
   };

@@ -1,39 +1,60 @@
 # Private Prompt Lab
 
-Optimise a proprietary system prompt inside a hardware enclave on NEAR AI Cloud, run your own test cases on both versions, and check the proof yourself.
+Verifiable private AI in the browser. Before your prompt leaves, the page checks the enclave on NEAR AI Cloud, then encrypts the prompt to the key inside its hardware quote and verifies the signed, encrypted reply. You can see the ciphertext NEAR AI's gateway received, and try to break the proof yourself.
 
 **Live:** https://prompt20.com/tools/private-prompt/
 
-A company's system prompt is product IP. Pasting it into an ordinary prompt optimiser hands it to that service. Private Prompt Lab encrypts it in your browser to a model running in a TEE on NEAR AI Cloud (Intel TDX with NVIDIA confidential GPUs), so NEAR AI's gateway relays only ciphertext and prompt20.com never sees it. The page checks every piece of evidence before sending anything and again before showing a result:
+## Who can read your prompt
 
-1. The model's Intel TDX quote contains a fresh random nonce made for this run and the model's own Ed25519 key. The NVIDIA GPU evidence carries the same nonce.
-2. dstack's event log replays to the quote's RTMR3, so the enclave app id and compose hash are measured values, and the enclave is not in debug mode.
-3. Intel's DCAP chain accepts the quote, and NVIDIA's attestation service accepts the GPUs, returning a signed token with this nonce, debug off and secure boot on.
-4. Only after those pass does the browser send the prompt, end-to-end encrypted to that attested key ([NEAR AI E2EE v2](https://docs.near.ai/cloud/guides/e2ee-chat-completions): X25519, HKDF-SHA256, XChaCha20-Poly1305). Replies come back encrypted to a one-time key made in the page.
-5. Every reply (the optimiser call and each test case on both prompts) is signed by the attested key over `sha256(request):sha256(response)` of the exact encrypted bytes the browser sent and received.
-6. The receipt keeps each message's one-time secret, so a checker opens every encrypted field and confirms it decrypts only with the key in the quote and says what the page shows.
-7. The optimised prompt and the list of cuts are read from the signed reply, and each test ran exactly once per prompt with the message shown.
+| Party | Sees | Why |
+|---|---|---|
+| Your browser | Plaintext | You type it. It is encrypted here, only after the enclave checks pass. |
+| prompt20.com | Nothing | The page calls NEAR AI directly. Its Content-Security-Policy blocks every other destination, including analytics. |
+| NEAR AI's gateway | Ciphertext and metadata | Each message is encrypted to the enclave key. The gateway still sees the model, sizes, timing and your API key. |
+| The enclave | Plaintext | Only the holder of the key named in the hardware quote, with this run's nonce, can decrypt. |
 
-Then it shows input tokens per call before and after, the monthly saving at your production model's price (live from data.prompt20.com), a word diff, the cuts the model made, the rules it kept, and pass or fail for each test case on both prompts.
+The page shows what you wrote beside the exact request body the gateway received. In our browser tests, none of 16 encrypted chat requests contained any of the prompt's text.
 
-Evidence and adoption are separate verdicts. **VERIFIED** means the proof holds. **Safe to adopt** means every test the original prompt passes, the optimised prompt passes too; a test that only the original passes is a regression.
+## The send gate
 
-Two recorded runs of a fictional support-agent prompt with 7 tests show both sides:
+Nothing is sent until these pass, and every check runs again on any receipt:
+
+1. **Enclave checked.** The model runs in its own TEE on NEAR AI (not an outside provider). dstack's event log replays to the quote's RTMR3, so the enclave app id and compose hash are measured, and it is not a debug enclave. Intel's DCAP chain accepts the TDX quote. NVIDIA's attestation tokens are verified in the page against NVIDIA's published keys: this nonce, debug off, secure boot on.
+2. **Fresh challenge.** The quote and the GPU evidence both contain a random nonce made for this run.
+3. **Key bound.** The quote's report data names the model's Ed25519 key.
+4. **Encrypted to that key.** Every message is encrypted in the browser with [NEAR AI E2EE v2](https://docs.near.ai/cloud/guides/e2ee-chat-completions) (X25519, HKDF-SHA256, XChaCha20-Poly1305). Replies come back encrypted to a one-time key made in the page.
+5. **Reply signed.** Every reply is signed by the attested key over `sha256(request):sha256(response)` of the exact encrypted bytes sent and received.
+6. **Shown = signed.** The receipt keeps each message's one-time secret, so a checker opens every encrypted field and confirms it decrypts only with the key in the quote and says what the page shows.
+
+## Try to break it
+
+The page runs four attacks against the real checks, and each is refused:
+
+| Attack | Refused by |
+|---|---|
+| Flip one byte of an encrypted reply | The encryption and the reply signature |
+| Swap in a key the quote does not contain | Key binding, encryption and signatures |
+| Replay the quote against a new challenge | The fresh nonce |
+| Send to a model NEAR AI runs at an outside provider (Claude, GPT, Gemini on NEAR AI) | Stopped before sending: NEAR AI reports no TEE for it |
+
+## Two things to do with it
+
+**Ask privately.** Send any sensitive message. The recorded sample is a fictional patient's lab results.
+
+**Optimise a prompt privately.** A company's system prompt is product IP. The lab shortens it in the enclave and runs your test cases on both versions, all encrypted. It gives two separate verdicts: **VERIFIED** (the proof holds) and **Safe to adopt** (no test the original passes fails on the new prompt). Two recorded runs of a fictional support-agent prompt with 7 tests:
 
 | Run | Tokens per call | Tests | Verdicts |
 |---|---|---|---|
 | Careful (keep every rule) | 580 to 311, 46% fewer | 7 of 7 | VERIFIED, safe to adopt |
-| Extreme (40-word budget) | 580 to 129, 78% fewer | 3 of 7 | VERIFIED, 4 regressions caught: the sign-off dropped twice, "contact the merchant" lost from late refunds, and a fraud report no longer escalates with ESC-2 |
-
-You pick how hard to cut (Careful, Aggressive, Extreme), and the lab shows where the savings stop being safe.
+| Extreme (40-word budget) | 580 to 129, 78% fewer | 3 of 7 | VERIFIED, 4 regressions caught: the sign-off dropped twice, "contact the merchant" lost from late refunds, and a fraud report no longer escalates |
 
 ## Try it
 
-**No key needed:** open https://prompt20.com/tools/private-prompt/. The page checks the recorded careful run as it loads: VERIFIED, safe to adopt, the token saving and every proof row. Under **Check a run**, press **40-word run: regressions caught** to see a fully verified run that is unsafe to adopt. Press **Flip one byte in a reply**: the verdict turns NOT VERIFIED.
+**No key needed:** open https://prompt20.com/tools/private-prompt/. It checks the recorded private question as it loads: all six gate steps green, the plaintext beside the ciphertext, VERIFIED. Press the four **Try to break it** buttons. Under **Check a run**, open the two prompt-edit runs.
 
-**Your own prompt:** get a NEAR AI key at https://cloud.near.ai ($10 free credits at https://nearbuilders.org/join), paste it on the **Optimise a prompt** tab with your system prompt and test cases, and press **Optimise in the enclave**. A run takes about 30 seconds and costs a few cents. **Download the receipt** saves the evidence so anyone can check it later.
+**Your own prompt:** get a NEAR AI key at https://cloud.near.ai ($10 free credits at https://nearbuilders.org/join), open **Run privately**, paste the key (kept in the page only, never stored) and send. Watch the gate: "No prompt sent yet" until the enclave checks pass.
 
-**Which models are private:** the **Private models** tab asks NEAR AI for every model's attestation, live, with no key. On 2026-11-11, 12 of 63 models ran in their own TEE, 4 went through an attested router, and 47 (the Anthropic, OpenAI, Google and xAI models among them) were passed to outside providers. NEAR AI's API says so itself: "TEE attestation is not supported for external providers." The lab only lets you pick a model with its own TEE.
+**Which models are private:** the **Models** tab asks NEAR AI for every model's attestation, live, with no key. On 2026-11-11, 12 of 63 models ran in their own TEE, 4 went through an attested router, and 47 (the Anthropic, OpenAI, Google and xAI models among them) were passed to outside providers. NEAR AI's API says so itself: "TEE attestation is not supported for external providers." The lab only offers models with their own TEE.
 
 ## Run it locally
 
@@ -41,7 +62,8 @@ Node 20 or later.
 
 ```sh
 npm install
-npm run verify          # check the recorded sample receipt, no key: asks Intel, NVIDIA and NEAR AI now
+npm run verify:ask      # the private question: VERIFIED, and the decrypted reply
+npm run verify          # the careful prompt edit, no key: asks Intel, NVIDIA and NEAR AI now
 npm run verify:extreme  # the 40-word run: VERIFIED, and NOT SAFE with 4 regressions
 npm run tamper          # flip one byte in a reply first: prints NOT VERIFIED and exits 1
 npm run swap-test       # rewrite a test message in the receipt: NOT VERIFIED
@@ -60,7 +82,7 @@ NEARAI_KEY=sk-... npm run capture   # record a new sample run into web/sample-ru
 | [`web/vendor/noble.js`](web/vendor/noble.js) | The audited [noble](https://paulmillr.com/noble/) curves, hashes and ciphers (MIT), bundled from `vendor-src/noble.js` with esbuild so the page loads no third-party script for its cryptography. |
 | [`web/lab.js`](web/lab.js) | The page: tabs, test-case editor, model scan, diff, results. |
 | [`web/index.html`](web/index.html), [`web/style.css`](web/style.css) | The page, as served on prompt20.com. |
-| [`web/sample.js`](web/sample.js), [`web/sample-run.json`](web/sample-run.json), [`web/sample-extreme.json`](web/sample-extreme.json) | The fictional Northwind Pay prompt with 7 test cases, and two real recorded runs of it (careful and 40-word). |
+| [`web/sample.js`](web/sample.js), [`web/sample-ask.json`](web/sample-ask.json), [`web/sample-run.json`](web/sample-run.json), [`web/sample-extreme.json`](web/sample-extreme.json) | Fictional samples: a patient's lab results, and the Northwind Pay prompt with 7 test cases. Real recorded runs: the private question, a careful edit and a 40-word edit. |
 | [`scripts/verify-receipt.mjs`](scripts/verify-receipt.mjs) | Command-line receipt checker. |
 | [`scripts/serve.mjs`](scripts/serve.mjs) | Local server with the same verifier pass-through as production. |
 | [`nginx/private-prompt.conf`](nginx/private-prompt.conf) | The production pass-through for the two vendor verifiers. |
@@ -69,16 +91,17 @@ NEARAI_KEY=sk-... npm run capture   # record a new sample run into web/sample-ru
 
 **Where the checks run.** The page reads `report_data` (bytes 568 to 632) and RTMR3 (bytes 520 to 568) out of the quote itself, and replays the event log with SHA-384. The quote's Intel certificate chain is checked by Phala's public DCAP verifier, and the GPU evidence by NVIDIA's NRAS. A receipt carries no vendor verdicts: every check, in the page or on the command line, asks Intel and NVIDIA again, and asks NEAR AI which enclave app serves the model today. NVIDIA's tokens are verified in the page against NVIDIA's published keys (ES384), so the GPU verdict does not depend on trusting prompt20.com's pass-through. The Intel verdict does: it comes from Phala's DCAP verifier through that pass-through. To remove that trust, run `npm run verify`, which calls Phala directly, or check the quote with Intel's own `dcap-qvl`.
 
-## What it does not prove
+## Trust boundaries
 
+- NEAR AI's gateway sees metadata: your IP, timing, message sizes, the model, request settings and your API key.
+- You trust the code this page delivers and NEAR AI's key management. Attestation shows what hardware and enclave app ran, not that the app never logs.
+- Instances of one model share a key, so it identifies a deployment, not one machine.
 - A receipt contains the one-time secrets that open its messages, so it reveals the prompt to whoever holds it. Share a receipt only when you mean to share the prompt.
-
 - The app id is checked against the app NEAR AI serves today, through NEAR AI's own attestation endpoint. Judging that app's compose file (what code it runs) is NEAR AI's published deployment; the page shows the compose hash so you can compare it in NEAR AI's Verification Center.
 - The CPU quote and the GPU evidence are tied together by the shared nonce, as in NEAR AI's own verifier. Neither vendor attests that link directly.
 - The must and must-not rules for each test are yours and are not signed. Pass or fail is recomputed from the signed replies on every check.
 - The optimised prompt passing your test cases means it behaves the same on those cases, not on every input. Write test cases for the rules that matter.
 - Token counts come from the enclave model's tokenizer (Qwen). Your production model counts a few percent differently.
-- Attestation shows what code and hardware served the request. It does not show what NEAR AI's gateway logs, which NEAR AI documents separately.
 
 ## NEAR HACKATHON
 
