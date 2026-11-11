@@ -1,17 +1,37 @@
 /* Private Prompt Lab page. All checks live in engine.js, shared with the Node verifier.
    Imports carry the release tag so a deploy never mixes a cached old module with new ones. */
-import { runLab, runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=15';
-import { SAMPLE_PROMPT, SAMPLE_TESTS, SAMPLE_ASK } from './sample.js?v=15';
+import { runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=17';
+import { SAMPLE_ASK } from './sample.js?v=17';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmt = (n) => (n == null || Number.isNaN(n) ? 'n/a' : Number(n).toLocaleString('en-US'));
-const money = (n) => (n >= 100 ? `$${Math.round(n).toLocaleString('en-US')}` : `$${n.toFixed(2)}`);
 
+/* Every request has a deadline, so a stalled service shows an error instead of spinning forever.
+   Reads (GET) retry twice on a network error, 429 or 5xx; sends (POST) never retry, so a message is
+   never sent twice. */
+const TIMEOUT_MS = { chat: 180000, other: 30000 };
+async function timedFetch(url, opts = {}) {
+  const u = String(url); const isGet = !opts.method || opts.method === 'GET';
+  const ms = /\/chat\/completions$/.test(u) ? TIMEOUT_MS.chat : TIMEOUT_MS.other;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const r = await window.fetch(url, { ...opts, signal: opts.signal || AbortSignal.timeout(ms) });
+      if (isGet && attempt < 2 && [429, 502, 504].includes(r.status)) { await new Promise((ok) => setTimeout(ok, 600 * 2 ** attempt)); continue; }
+      return r;
+    } catch (e) {
+      const host = new URL(u, location.href).host;
+      if (e.name === 'TimeoutError') throw new Error(`${host} did not answer within ${ms / 1000} seconds.`);
+      if (isGet && attempt < 2) { await new Promise((ok) => setTimeout(ok, 600 * 2 ** attempt)); continue; }
+      throw new Error(`Could not reach ${host}. Check your connection and try again.`);
+    }
+  }
+}
 const deps = {
-  fetch: (...a) => window.fetch(...a),
-  // Intel's and NVIDIA's verifiers send no CORS headers, so prompt20.com passes the public evidence through.
-  tdxUrl: new URL('verify/tdx', location.href).href,
+  fetch: timedFetch,
+  // Intel's PCS and NVIDIA's verifier send no CORS headers, so prompt20.com passes the public evidence
+  // through. Intel's collateral is signed by Intel and checked here, so the pass-through cannot alter it.
+  pcsUrl: (kind, arg) => new URL(`intel/${kind}${arg ? `/${arg}` : ''}`, location.href).href,
   gpuUrl: new URL('verify/gpu', location.href).href,
 };
 
@@ -30,60 +50,10 @@ for (const t of TAB_ORDER) $(`tab-${t}`).addEventListener('keydown', (e) => {
   showTab(next); $(`tab-${next}`).focus(); e.preventDefault();
 });
 
-/* Presets: ask privately, or optimise a prompt privately */
-let preset = 'ask';
-function setPreset(p) {
-  preset = p;
-  $('pre-ask').setAttribute('aria-pressed', String(p === 'ask')); $('pre-opt').setAttribute('aria-pressed', String(p === 'opt'));
-  $('ask-fields').hidden = p !== 'ask'; $('opt-fields').hidden = p !== 'opt';
-  $('run-label').textContent = p === 'ask' ? 'Send privately' : 'Optimise privately';
-}
-$('pre-ask').addEventListener('click', () => setPreset('ask'));
-$('pre-opt').addEventListener('click', () => setPreset('opt'));
-
 /* Inputs */
-function promptCount() { const w = $('prompt').value.trim().split(/\s+/).filter(Boolean).length; $('prompt-count').textContent = w ? `${fmt(w)} words` : ''; }
-$('prompt').addEventListener('input', promptCount);
-function testRow(t = { input: '', must: [], mustNot: [] }) {
-  const d = document.createElement('div');
-  d.className = 'test';
-  d.innerHTML = `<textarea rows="2" aria-label="Test message" placeholder="A message a user might send">${esc(t.input)}</textarea>
-    <label>Reply must include<input type="text" class="must" value="${esc((t.must || []).join(', '))}" placeholder="30 days | 30-day, - Nova"></label>
-    <label>Reply must not include<input type="text" class="mustnot" value="${esc((t.mustNot || []).join(', '))}"></label>
-    <button type="button" class="btn ghost rm" aria-label="Remove this test case">Remove</button>`;
-  d.querySelector('.rm').addEventListener('click', () => { d.remove(); testCount(); });
-  $('tests').append(d); testCount();
-}
-function testCount() { $('test-count').textContent = `(${$('tests').children.length})`; }
-const split = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
-const readTests = () => [...$('tests').children].map((d) => ({ input: d.querySelector('textarea').value.trim(), must: split(d.querySelector('.must').value), mustNot: split(d.querySelector('.mustnot').value) })).filter((t) => t.input);
-function loadSample() { $('prompt').value = SAMPLE_PROMPT; $('tests').innerHTML = ''; SAMPLE_TESTS.forEach(testRow); promptCount(); }
 function loadAsk() { $('ask-system').value = SAMPLE_ASK.system; $('ask-message').value = SAMPLE_ASK.message; }
-$('load-sample').addEventListener('click', loadSample);
 $('load-ask').addEventListener('click', loadAsk);
-$('add-test').addEventListener('click', () => testRow());
-loadSample(); loadAsk();
-
-/* Deploy-model prices from data.prompt20.com, for the optimisation preset */
-let prices = [];
-async function loadPrices() {
-  for (let i = 0; i < 50 && !window.P20Models; i++) await new Promise((r) => setTimeout(r, 100));
-  try {
-    const { models } = await window.P20Models.loadAll(['reasoning-models', 'code-models', 'agents-models']);
-    const seen = new Map();
-    for (const m of models) if (m.inPrice > 0 && !seen.has(m.name)) seen.set(m.name, m);
-    prices = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
-  } catch { prices = []; }
-  const sel = $('deploy');
-  if (!prices.length) { sel.innerHTML = '<option value="">Prices unavailable</option>'; return; }
-  sel.innerHTML = prices.map((m, i) => `<option value="${i}">${esc(m.name)} ($${m.inPrice} per 1M input)</option>`).join('');
-  const son = prices.map((m, i) => [m, i]).filter(([m]) => /claude sonnet/i.test(m.name)).sort((a, b) => String(b[0].released || '').localeCompare(String(a[0].released || '')));
-  sel.value = String(son.length ? son[0][1] : 0);
-  if (current) render(current.rc, current.v, current.note);
-}
-loadPrices();
-$('deploy').addEventListener('change', () => current && render(current.rc, current.v, current.note));
-$('calls').addEventListener('input', () => current && render(current.rc, current.v, current.note));
+loadAsk();
 
 /* Private models scan */
 let scanned = false;
@@ -98,7 +68,7 @@ async function scan() {
   scanned = true;
   $('scan').disabled = true; $('scan-sum').textContent = 'Checking';
   try {
-    const list = (await (await fetch(`${NEARAI}/models`)).json()).data.map((m) => m.id);
+    const list = (await (await timedFetch(`${NEARAI}/models`)).json()).data.map((m) => m.id);
     const nonce = newNonce(); const rows = []; let i = 0;
     await Promise.all(Array.from({ length: 8 }, async () => {
       while (i < list.length) {
@@ -153,37 +123,33 @@ const gateFrom = (v) => {
 function busy(title, note) {
   cancelFlash(); flowRun++; current = null;
   // Clear the previous run's evidence so nothing stale stays on screen.
-  $('results').hidden = true; $('reply-card').hidden = true; $('proof').innerHTML = ''; $('sigs-t').tBodies[0].innerHTML = ''; $('compose').textContent = '';
+  $('reply-card').hidden = true; $('proof').innerHTML = ''; $('sigs-t').tBodies[0].innerHTML = ''; $('compose').textContent = '';
   $('lens-box').textContent = ''; lensText = '';
-  $('stage-title').textContent = title; $('verdict').className = 'vbadge'; $('verdict').textContent = 'Running'; $('adopt').hidden = true;
+  $('stage-title').textContent = title; $('verdict').className = 'vbadge'; $('verdict').textContent = 'Running';
   $('break-out').innerHTML = ''; $('run-error').hidden = true;
   $('stage-run').hidden = false; $('stage-models').hidden = true;
   gate({}, note);
 }
-const STEP_GATE = { attest: { enclave: 'now' }, vendor: { enclave: 'now', fresh: 'now', key: 'now' }, optimize: { enclave: 'ok', fresh: 'ok', key: 'ok', enc: 'ok', sig: 'now' }, tests: { enclave: 'ok', fresh: 'ok', key: 'ok', enc: 'ok', sig: 'now' } };
-const STEP_NOTE = { attest: 'Nothing sent yet.', vendor: 'Nothing sent yet.', optimize: 'Checks passed. Sent, locked to the chip.', tests: 'Tests sent, each locked too.' };
+const STEP_GATE = { attest: { enclave: 'now' }, vendor: { enclave: 'now', fresh: 'now', key: 'now' }, send: { enclave: 'ok', fresh: 'ok', key: 'ok', enc: 'ok', sig: 'now' } };
+const STEP_NOTE = { attest: 'Nothing sent yet.', vendor: 'Nothing sent yet.', send: 'Checks passed. Sent, locked to the chip.' };
 const onStep = (id, msg) => {
   gate(STEP_GATE[id] || {}, `${STEP_NOTE[id] || ''} ${msg}.`);
   const enc = $('flow').querySelector('.node[data-p="enclave"]');
   enc.classList.toggle('checking', id === 'attest' || id === 'vendor');
-  if (id === 'optimize') { const l = $('flow').querySelectorAll('.wirel'); l.forEach((x) => { x.classList.remove('go'); void x.offsetWidth; x.classList.add('go'); }); }
+  if (id === 'send') { const l = $('flow').querySelectorAll('.wirel'); l.forEach((x) => { x.classList.remove('go'); void x.offsetWidth; x.classList.add('go'); }); }
 };
 $('run').addEventListener('click', async () => {
   const key = $('key').value.trim();
   const err = $('run-error');
   const fail = (m) => { err.textContent = m; err.hidden = false; };
-  if (!key) return fail('Add a NEAR AI key first. Or use Check a run to verify a recorded run with no key.');
-  if (preset === 'ask' && $('ask-message').value.trim().length < 2) return fail('Write a message first.');
-  if (preset === 'opt' && $('prompt').value.trim().length < 40) return fail('Paste a system prompt of at least a few sentences.');
-  if (preset === 'opt' && !readTests().length) return fail('Add at least one test case.');
+  if (!key) return fail('Add a NEAR AI key first. The Demo tab checks a recorded run with no key.');
+  if ($('ask-message').value.trim().length < 2) return fail('Write a message first.');
   $('run').disabled = true;
   busy('Live run', 'Nothing sent yet. Checking the chip.');
   const op = ++opId;
   try {
-    const rc = preset === 'ask'
-      ? await runAsk({ key, model: $('model').value, system: $('ask-system').value, message: $('ask-message').value, onStep }, deps)
-      : await runLab({ key, model: $('model').value, mode: $('mode').value, prompt: $('prompt').value.trim(), tests: readTests(), onStep }, deps);
-    gate({ ...STEP_GATE.tests }, 'Checking every signature and opening every encrypted field.');
+    const rc = await runAsk({ key, model: $('model').value, system: $('ask-system').value, message: $('ask-message').value, onStep }, deps);
+    gate({ ...STEP_GATE.send }, 'Checking every signature and opening every encrypted field.');
     const v = await verifyReceipt(rc, deps);
     if (op === opId) render(rc, v, 'Live run');
   } catch (e) {
@@ -212,11 +178,11 @@ async function checkReceipt(rc, note) {
   }
 }
 const samples = {};
-const SAMPLE_FILES = { ask: ['sample-ask.json', 'Recorded private question'], careful: ['sample-run.json', 'Recorded private prompt edit, careful'], extreme: ['sample-extreme.json', 'Recorded private prompt edit, 40 words'] };
+const SAMPLE_FILES = { ask: ['sample-ask.json', 'Recorded private question'] };
 async function checkSample(which) {
   const btn = $(`check-${which}`); btn.disabled = true;
   const [file, note] = SAMPLE_FILES[which];
-  try { samples[which] = samples[which] || await (await fetch(file)).json(); await checkReceipt(structuredClone(samples[which]), note); }
+  try { samples[which] = samples[which] || await (await timedFetch(file)).json(); await checkReceipt(structuredClone(samples[which]), note); }
   catch (e) { $('run-error').textContent = `Could not load the sample: ${e.message}`; $('run-error').hidden = false; }
   btn.disabled = false;
 }
@@ -229,40 +195,23 @@ $('receipt-file').addEventListener('change', async (ev) => {
 // First view: a real recorded private question, checked live, before any input.
 checkSample('ask');
 
-/* Word diff (LCS on words, whitespace kept) */
-function diff(a, b) {
-  const A = a.split(/(\s+)/), B = b.split(/(\s+)/);
-  const n = A.length, m = B.length;
-  if (n * m > 4e6) return [esc(a), esc(b)];
-  const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
-  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-  let i = 0, j = 0, L = '', R = '';
-  while (i < n && j < m) {
-    if (A[i] === B[j]) { L += esc(A[i]); R += esc(B[j]); i++; j++; }
-    else if (dp[i + 1][j] >= dp[i][j + 1]) { L += /^\s+$/.test(A[i]) ? A[i] : `<del>${esc(A[i])}</del>`; i++; }
-    else { R += /^\s+$/.test(B[j]) ? B[j] : `<ins>${esc(B[j])}</ins>`; j++; }
-  }
-  for (; i < n; i++) L += /^\s+$/.test(A[i]) ? A[i] : `<del>${esc(A[i])}</del>`;
-  for (; j < m; j++) R += /^\s+$/.test(B[j]) ? B[j] : `<ins>${esc(B[j])}</ins>`;
-  return [L, R];
-}
-
 /* Who can read it: a flow of the three parties on the path (and prompt20.com, off it), and a lens
    that shows exactly what the chosen party sees, from the real request and reply bytes. */
 const HEX = '0123456789abcdef';
-let lens = {}; let labLens = {}; let apiLens = {}; let lensRun = 0; let lensText = ''; let flowRun = 0;
+let lens = {}; let lensRun = 0; let lensText = ''; let flowRun = 0;
 function lensData(rc, v) {
   const call = rc.calls[0];
-  const plain = rc.kind === 'ask' ? [rc.system ? `[instructions]\n${rc.system}` : '', `[message]\n${rc.message}`].filter(Boolean).join('\n\n') : `[company system prompt]\n${rc.original}`;
+  const plain = [rc.system ? `[instructions]\n${rc.system}` : '', `[message]\n${rc.message}`].filter(Boolean).join('\n\n');
   let body = call.request;
   try { body = JSON.stringify(JSON.parse(call.request), null, 1); } catch { /* keep raw */ }
-  const reply = rc.kind === 'ask' ? v.reply : '';
+  const reply = v.reply || '';
   const key = String(v.att.signer || '').slice(0, 12);
   const marks = v.sensitive || [];
   return {
     browser: { title: 'What your browser sees', text: plain, marks, note: marks.length ? `Readable only here and inside the chip. Highlighted: the ${marks.length} sensitive items the chip found.` : 'Readable only here and inside the chip.' },
     gateway: { title: "What NEAR AI's gateway sees", text: body, hex: true, note: 'The exact request it received. Your words are gibberish; the model name, size, timing, IP and API key are not.' },
     enclave: { title: 'What the secure chip sees', marks, text: plain + (reply ? `\n\n[its reply, locked back to your browser]\n${reply.slice(0, 600)}${reply.length > 600 ? ' ...' : ''}` : ''), note: `Unlocked inside the chip with key ${key}..., the one in its hardware proof.` },
+    api: { title: 'What a standard AI API receives', text: standardRequest(rc), plainHit: true, marks, note: 'The same message sent the usual way. TLS protects it on the way, then the provider reads every word and keeps it under its own retention policy.' },
     prompt20: { title: 'What prompt20.com sees', text: '', note: 'Nothing from this page. Your message and key go only to NEAR AI; prompt20.com receives only the public hardware proof.' },
   };
 }
@@ -292,7 +241,6 @@ async function showLens(p, animate = true) {
   lensText = target;
 }
 async function playFlow() {
-  if (cmp !== 'lab') setCmp('lab');
   const run = ++flowRun; const live = () => run === flowRun;
   const links = [...$('flow').querySelectorAll('.wirel')];
   const nodes = (p) => $('flow').querySelector(`.node[data-p="${p}"]`);
@@ -305,24 +253,7 @@ async function playFlow() {
 }
 for (const n of document.querySelectorAll('#flow .node')) n.addEventListener('click', () => { flowRun++; showLens(n.dataset.p); });
 
-/* Compare with a normal AI API: the same message in the standard request format, readable by the provider. */
-let cmp = 'lab';
-const NODE_TEXT = {
-  lab: { browser: ['Your browser', 'Plaintext'], gateway: ['NEAR AI gateway', 'Ciphertext'], enclave: ['The enclave', 'Plaintext'], prompt20: ['prompt20.com', 'Not on the path'] },
-  api: { browser: ['Your browser', 'Plaintext'], gateway: ['Provider API', 'Plaintext'], enclave: ["Provider's servers", 'Plaintext, may be logged'], prompt20: ['Tools you paste into', 'Often plaintext too'] },
-};
-function setCmp(mode) {
-  cmp = mode;
-  $('cmp-lab').setAttribute('aria-pressed', String(mode === 'lab')); $('cmp-api').setAttribute('aria-pressed', String(mode === 'api'));
-  $('flow').classList.toggle('api', mode === 'api');
-  for (const n of $('flow').querySelectorAll('.node')) { const [t, v] = NODE_TEXT[mode][n.dataset.p]; n.querySelector('b').textContent = t; n.querySelector('.nv').textContent = v; }
-  lens = mode === 'api' ? apiLens : labLens;
-  showLens(mode === 'api' ? 'gateway' : 'gateway');
-}
-$('cmp-lab').addEventListener('click', () => { flowRun++; setCmp('lab'); });
-$('cmp-api').addEventListener('click', () => { flowRun++; setCmp('api'); });
-
-/* Leak meter: characters of the message readable outside the browser and the chip, measured on the real bytes. */
+/* Readable in transit: measured on the real request bytes, against the same message sent the usual way. */
 function leakCount(plain, wireText) {
   // Count message characters that appear in the request bytes in runs of 6 or more (words, numbers, names).
   let leaked = 0; const W = 6;
@@ -331,13 +262,17 @@ function leakCount(plain, wireText) {
   }
   return leaked;
 }
-const openCallOk = (c) => current?.v?.structure?.find((r) => r.id === 'e2ee')?.ok === true;
+const sentTexts = (rc) => [rc.system, rc.message].filter((x) => String(x || '').trim());
+function standardRequest(rc) {
+  const msgs = sentTexts(rc);
+  return JSON.stringify({ model: 'any-model', messages: msgs.map((c, i) => ({ role: i === 0 && msgs.length > 1 ? 'system' : 'user', content: c })) }, null, 1);
+}
 /* This run's cost in NEAR AI credits, from its real token usage and NEAR AI's published prices. */
 let pricing = null;
 async function costLine(rc) {
   const el = $('cost-line'); el.hidden = true;
   try {
-    pricing = pricing || Object.fromEntries((await (await fetch(`${NEARAI}/models`)).json()).data.map((m) => [m.id, m.pricing]));
+    pricing = pricing || Object.fromEntries((await (await timedFetch(`${NEARAI}/models`)).json()).data.map((m) => [m.id, m.pricing]));
     const pr = pricing[rc.model]; if (!pr) return;
     let usd = 0;
     for (const c of rc.calls) { const u = JSON.parse(c.response).usage || {}; usd += ((u.prompt_tokens || 0) * pr.input + (u.completion_tokens || 0) * pr.output) / 1e6; }
@@ -346,32 +281,28 @@ async function costLine(rc) {
     el.innerHTML = `Cost <b>$${usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2)}</b> in NEAR AI credits, payable with <a href="https://docs.near.ai/cloud/staking-for-inference/overview" target="_blank" rel="noopener">NEAR staking</a> <button type="button" class="itip" data-tip="${rc.calls.length} call${rc.calls.length === 1 ? '' : 's'}, priced from their real token usage and NEAR AI's published prices. Staking for Inference pays credits from NEAR staking rewards, and the stake stays yours." aria-label="What is this?">i</button>`;
   } catch { /* prices unavailable */ }
 }
-function meter(rc) {
-  const call = rc.calls[0];
-  const msgs = rc.kind === 'ask' ? [rc.system, rc.message].filter(Boolean) : [rc.original];
-  const plain = msgs.join('\n');
+function meter(rc, v) {
+  const plain = sentTexts(rc).join('\n');
   // What a receiver can read after parsing the JSON body: every message content, as sent.
   const readable = (body) => { try { return JSON.parse(body).messages.map((m) => m.content).join('\n'); } catch { return body; } };
-  // Encrypted and verified content is unreadable by construction; otherwise fall back to scanning the bytes.
-  const labLeak = rc.calls.every((c) => openCallOk(c)) ? 0 : leakCount(plain, readable(call.request));
-  const normal = JSON.stringify({ model: 'any-model', messages: msgs.map((c, i) => ({ role: i === 0 && msgs.length > 1 ? 'system' : 'user', content: c })) });
-  const apiLeak = plain.length; // a standard request carries the message verbatim
-  const n = plain.length;
-  $('m-lab').style.width = `${Math.max(0.5, (labLeak / n) * 100)}%`; $('m-api').style.width = `${(apiLeak / n) * 100}%`;
-  $('mv-lab').textContent = `${fmt(labLeak)} of ${fmt(n)} characters`;
-  $('mv-api').textContent = `${fmt(apiLeak)} of ${fmt(n)} characters`;
-  const items = current?.v?.sensitive;
-  $('sens-row').hidden = !items || !items.length;
-  if (items && items.length) {
+  // Encrypted and verified content is unreadable by construction; otherwise scan the bytes.
+  const e2eeOk = v.structure.find((r) => r.id === 'e2ee')?.ok === true;
+  const wire = readable(rc.calls[0].request);
+  const items = v.sensitive || [];
+  let html;
+  if (items.length) {
     const byType = {}; for (const it of items) byType[it.type] = (byType[it.type] || 0) + 1;
-    const lab = labLeak === 0 ? 0 : items.filter((it) => readable(call.request).includes(it.text)).length;
-    $('sens-chips').innerHTML = `<b class="okc">${lab} of ${items.length}</b> readable here, <b class="badc">${items.length} of ${items.length}</b> in a standard API: ` + Object.entries(byType).map(([t, n]) => `<span class="chip">${esc(t)}${n > 1 ? ` x${n}` : ''}</span>`).join('');
+    const here = e2eeOk ? 0 : items.filter((it) => wire.includes(it.text)).length;
+    html = `<b class="${here ? 'badc' : 'okc'}">${here} of ${items.length}</b> sensitive items here, <b class="badc">${items.length} of ${items.length}</b> with a standard AI API: ${Object.entries(byType).map(([t, n]) => `<span class="chip">${esc(t)}${n > 1 ? ` x${n}` : ''}</span>`).join('')}`;
+  } else {
+    const n = plain.length; const here = e2eeOk ? 0 : leakCount(plain, wire);
+    html = `<b class="${here ? 'badc' : 'okc'}">${fmt(here)} of ${fmt(n)}</b> characters here, <b class="badc">${fmt(n)} of ${fmt(n)}</b> with a standard AI API`;
   }
-  $('m-note').textContent = '';
-  return normal;
+  $('sens-chips').innerHTML = html;
 }
 $('replay-flow').addEventListener('click', playFlow);
 $('go-try').addEventListener('click', () => showTab('run'));
+
 
 /* Results */
 let current = null;
@@ -385,7 +316,7 @@ function renderCode(code, rc) {
   const { compose: c, deploy: d, gateway: g } = code;
   const src = d.source;
   const pending = (x) => x === null || x === undefined;
-  const intelTxt = (x, sig) => `Intel's signature ${sig ? 'checks out here' : 'FAILS here'}${pending(x) ? '' : x ? ', and the DCAP verifier agrees' : ', but the DCAP verifier did not accept it'}`;
+  const intelTxt = (x, sig) => `Intel's signature ${sig ? 'checks out here' : 'FAILS here'}${pending(x) ? '' : x ? ', and Intel\'s collateral says the platform is up to date and not revoked' : ', but Intel\'s collateral check failed'}`;
   const links = [
     { ok: c.ok, title: 'The enclave booted this compose file', body: c.ok ? `${esc(c.name)}: its sha256 is in the hardware quote twice (MRCONFIGID and the RTMR3 event log). It pins ${c.images.map((i) => `<code>${esc(short(i))}</code>`).join(', ')}.` : 'The compose file does not match the quote.' },
     { ok: d.ok && d.intel !== false, title: 'NEAR AI\'s deploy log, signed by the same chip', body: d.present ? `${d.entries} deploy actions. Their hash and this run's nonce are in a second TDX quote from the same VM (same MRTD and RTMRs). ${intelTxt(d.intel, d.sig)}.` : 'No deploy log in this proof.' },
@@ -415,53 +346,20 @@ function render(rc, v, note) {
   const why = v.ok ? '' : v.unreachable ? ' · a verifier could not be reached, press Check again' : '';
   $('stage-title').textContent = `${note || 'This run'} · ${rc.model} · ${new Date(rc.created).toUTCString().slice(5, 22)} UTC${why}`;
   gate(gateFrom(v), v.ok ? 'All six checks passed.' : 'A check failed. Details below.', true);
-  labLens = lensData(rc, v);
-  const normal = meter(rc);
+  lens = lensData(rc, v);
+  meter(rc, v);
   costLine(rc);
-  const plainAll = labLens.browser.text;
-  let normalPretty = normal; try { normalPretty = JSON.stringify(JSON.parse(normal), null, 1); } catch { /* raw */ }
-  apiLens = {
-    browser: { title: 'What your browser sees', text: plainAll, note: 'Same as here.' },
-    gateway: { title: 'What a standard AI API receives', text: normalPretty, plainHit: true, marks: v.sensitive || [], note: 'TLS protects it on the way, then the provider reads every word.' },
-    enclave: { title: "What the provider's servers see", text: plainAll, note: 'Plaintext, kept under the provider\'s retention policy. You cannot check what happens to it.' },
-    prompt20: { title: 'What other tools see', text: plainAll, note: 'Web tools that call an AI for you usually see your text too.' },
-  };
-  if (cmp === 'api') { lens = apiLens; showLens('gateway'); } else { lens = labLens; playFlow(); }
+  playFlow();
   $('break-out').innerHTML = '';
-
-  const ad = $('adopt');
-  ad.hidden = rc.kind === 'ask';
-  if (rc.kind !== 'ask') { ad.className = `vbadge ${v.safe ? 'ok' : 'bad'}`; ad.textContent = v.safe ? 'Passes your tests' : v.regressions.length ? `${v.regressions.length} regression${v.regressions.length === 1 ? '' : 's'} caught` : v.ok ? 'Fails a test' : 'Not verified'; }
 
   const rows = [...v.att.rows, ...v.structure];
   $('proof').innerHTML = rows.map((r) => `<li>${pill(r.ok)}<div>${esc(r.label)}<div class="why">${esc(r.detail)}</div></div></li>`).join('');
-  $('sigs-t').tBodies[0].innerHTML = v.calls.map((c) => `<tr><td>${esc(c.role.replace(/^test-(\d+)-/, (_, n) => `Test ${Number(n) + 1}, `))}</td><td>${pill(c.hashesOk, 'Yes', 'No')}</td><td class="mono-addr">${esc(c.recovered || 'none')}${c.kind ? ` <span class="hint">${esc(c.kind)}</span>` : ''}</td><td>${pill(c.ok)}</td></tr>`).join('');
+  $('sigs-t').tBodies[0].innerHTML = v.calls.map((c) => `<tr><td>${esc({ ask: 'Your message', scan: 'Sensitive-item scan' }[c.role] || c.role)}</td><td>${pill(c.hashesOk, 'Yes', 'No')}</td><td class="mono-addr">${esc(c.recovered || 'none')}${c.kind ? ` <span class="hint">${esc(c.kind)}</span>` : ''}</td><td>${pill(c.ok)}</td></tr>`).join('');
   renderCode(v.code, rc);
   $('compose').textContent = v.att.composeHash ? `Enclave app ${v.att.appId}, compose hash ${v.att.composeHash}, key ${v.att.signer}.` : '';
 
-  $('reply-card').hidden = rc.kind !== 'ask';
-  if (rc.kind === 'ask') $('reply-text').textContent = v.reply || '';
-  $('results').hidden = rc.kind === 'ask';
-  if (rc.kind === 'ask') return;
-
-  const t = v.tokens;
-  const pct = t.original ? Math.round((t.savedPerCall / t.original) * 100) : 0;
-  $('t-tokens').textContent = `${fmt(t.original)} → ${fmt(t.optimized)}`;
-  $('t-tokens-s').textContent = `${fmt(t.savedPerCall)} fewer per call (${pct}%), Qwen tokenizer`;
-  const p = prices[Number($('deploy').value)];
-  const calls = Math.max(0, Number($('calls').value) || 0);
-  if (p) { $('t-cost').textContent = money((t.savedPerCall * calls * p.inPrice) / 1e6); $('t-cost-s').textContent = `${fmt(calls)} calls on ${p.name}`; }
-  else { $('t-cost').textContent = 'n/a'; $('t-cost-s').textContent = 'Prices did not load'; }
-  const po = v.tests.filter((x) => x.original?.pass).length, pn = v.tests.filter((x) => x.optimized?.pass).length;
-  $('t-tests').textContent = `${pn} of ${v.tests.length}`;
-  $('t-tests-s').textContent = `Original prompt: ${po} of ${v.tests.length}${v.regressions.length ? `, ${v.regressions.length} regression${v.regressions.length === 1 ? '' : 's'}` : ''}`;
-  $('tests-tile').classList.toggle('bad', !v.safe);
-  const [L, R] = diff(rc.original, rc.optimized);
-  $('d-old').innerHTML = L; $('d-new').innerHTML = R;
-  $('changes').innerHTML = v.signed.changes.map((c) => `<li>${esc(c.change)}${c.why ? ` <span>${esc(c.why)}</span>` : ''}</li>`).join('') || '<li>None listed</li>';
-  $('kept').innerHTML = v.signed.kept.map((k) => `<li>${esc(k)}</li>`).join('') || '<li>None listed</li>';
-  const cell = (r) => (r ? `${pill(r.pass)}${r.fails.length ? ` <span class="hint">${esc(r.fails.join('; '))}</span>` : ''}<details><summary>Reply</summary><div class="reply">${esc(r.reply)}</div></details>` : 'n/a');
-  $('tests-t').tBodies[0].innerHTML = v.tests.map((x) => { const reg = x.original?.pass && !x.optimized?.pass; return `<tr${reg ? ' class="regress"' : ''}><td>${reg ? '<span class="pill bad">Regression</span> ' : ''}${esc(x.input)}</td><td>${cell(x.original)}</td><td>${cell(x.optimized)}</td></tr>`; }).join('');
+  $('reply-card').hidden = false;
+  $('reply-text').textContent = v.reply || '';
 }
 
 let flashTimer = 0;
@@ -553,8 +451,6 @@ $('download').addEventListener('click', () => {
   a.download = `private-prompt-receipt-${current.rc.created.slice(0, 19).replace(/[:T]/g, '-')}.json`;
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
-$('copy-opt').addEventListener('click', async () => { if (current?.rc.optimized) { try { await navigator.clipboard.writeText(current.rc.optimized); $('copy-opt').textContent = 'Copied'; setTimeout(() => { $('copy-opt').textContent = 'Copy the optimised prompt'; }, 1500); } catch { /* clipboard blocked */ } } });
-
 /* Tooltips: any [data-tip] element. Hover or focus shows it; tapping an (i) toggles it. Kept inside the viewport. */
 const tipBox = Object.assign(document.createElement('div'), { id: 'tipbox', className: 'tipbox', hidden: true });
 tipBox.setAttribute('role', 'tooltip');

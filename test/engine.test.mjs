@@ -7,7 +7,7 @@ import { verifyReceipt, codeChecks, canonicalJson, parseScan, checkAttestation, 
 import { nodeDeps } from '../scripts/deps.mjs';
 
 const load = (f) => JSON.parse(readFileSync(new URL(`../web/${f}.json`, import.meta.url)));
-const SAMPLES = ['sample-ask', 'sample-run', 'sample-extreme'];
+const SAMPLES = ['sample-ask'];
 const VENDOR = new Set(['intel', 'nvidia', 'same-app']);
 const offline = (rc) => verifyReceipt(rc, nodeDeps, { offline: true });
 
@@ -113,4 +113,61 @@ test('a swapped attestation key breaks the quote signature and the QE binding', 
   const bad = m.intel_quote.slice(0, at) + (m.intel_quote[at] === '0' ? '1' : '0') + m.intel_quote.slice(at + 1);
   const r = verifyTdxQuote(bad);
   assert.equal(r.ok, false); assert.equal(r.steps.quoteSig, false); assert.equal(r.steps.qeBinding, false);
+});
+
+test('a receipt whose message was rewritten is refused', async () => {
+  const rc = load('sample-ask'); rc.message = 'something else';
+  const v = await offline(rc);
+  assert.equal(v.structure.find((r) => r.id === 'ask').ok, false);
+});
+
+test('a receipt from the retired prompt-shortening mode is rejected with a reason', async () => {
+  await assert.rejects(verifyReceipt({ ...load('sample-ask'), kind: 'optimize' }, nodeDeps, { offline: true }), /retired/);
+});
+
+/* Intel collateral, recorded from Intel's PCS (test/fixtures), checked at the time it was recorded. */
+const FIX = JSON.parse(readFileSync(new URL('./fixtures/intel-collateral.json', import.meta.url)));
+const AT = Date.parse(FIX.recordedAt);
+const fixtureGet = (edit = (k, r) => r) => async (kind, arg = '') => {
+  const f = FIX[`${kind}:${arg}`];
+  if (!f) throw Object.assign(new Error(`no fixture ${kind}:${arg}`), { unreachable: true });
+  return edit(kind, f.base64 ? { bytes: new Uint8Array(Buffer.from(f.base64, 'base64')), chain: f.chain } : { text: f.text, chain: f.chain });
+};
+
+test('Intel collateral: every recorded quote is up to date and not revoked', async () => {
+  const { checkCollateral } = await import('../web/dcap.js');
+  const rc = load('sample-ask'); const m = modelAttestation(rc.attestation, rc.model);
+  for (const q of [m.intel_quote, m.compose_manager_attestation.quote, rc.attestation.gateway_attestation.intel_quote]) {
+    const r = await checkCollateral(q, fixtureGet(), AT);
+    assert.ok(r.ok, r.error); assert.equal(r.status, 'UpToDate'); assert.equal(r.revoked, false);
+  }
+});
+
+test('Intel collateral: an edited TCB info, QE identity or CRL is refused', async () => {
+  const { checkCollateral } = await import('../web/dcap.js');
+  const q = modelAttestation(load('sample-ask').attestation, load('sample-ask').model).intel_quote;
+  const edits = {
+    tcb: (k, r) => (k === 'tcb' ? { ...r, text: r.text.replace('"OutOfDate"', '"UpToDate"') } : r),
+    qe: (k, r) => (k === 'qe' ? { ...r, text: r.text.replace('"isvsvn":4', '"isvsvn":0') } : r),
+    crl: (k, r) => { if (k !== 'pckcrl') return r; const b = r.bytes.slice(); b[200] ^= 1; /* inside the signed list of revoked serials */ return { ...r, bytes: b }; },
+    chain: (k, r) => (k === 'tcb' ? { ...r, chain: FIX['pckcrl:platform'].chain } : r),
+  };
+  for (const [name, edit] of Object.entries(edits)) {
+    const r = await checkCollateral(q, fixtureGet(edit), AT);
+    assert.equal(r.ok, false, `${name} edit was accepted`);
+  }
+});
+
+test('Intel collateral: stale collateral is refused', async () => {
+  const { checkCollateral } = await import('../web/dcap.js');
+  const q = modelAttestation(load('sample-ask').attestation, load('sample-ask').model).intel_quote;
+  const r = await checkCollateral(q, fixtureGet(), AT + 60 * 86400000);
+  assert.equal(r.ok, false); assert.match(r.error, /next update/);
+});
+
+test('Intel collateral: an unreachable service is reported as unreachable, not as a failed check', async () => {
+  const { checkCollateral } = await import('../web/dcap.js');
+  const q = modelAttestation(load('sample-ask').attestation, load('sample-ask').model).intel_quote;
+  const r = await checkCollateral(q, async () => { throw Object.assign(new Error('down'), { unreachable: true }); }, AT);
+  assert.equal(r.ok, false); assert.equal(r.unreachable, true);
 });

@@ -1,4 +1,4 @@
-/* Private Prompt Lab engine: runs a prompt optimisation on NEAR AI Cloud and checks
+/* Private Prompt Lab engine: sends a message privately to a NEAR AI Cloud enclave and checks
    every piece of evidence. Plain ES module with no imports, so the browser page and the
    Node scripts (verify-receipt.mjs, capture-sample.mjs) share the exact same checks.
    Hashing uses globalThis.crypto.subtle (browsers, Node 20+). Every chat call is end-to-end
@@ -6,35 +6,19 @@
 
    deps = {
      fetch,                          // fetch implementation
-     tdxUrl, gpuUrl                  // Intel TDX quote verifier and NVIDIA NRAS endpoints
+     pcsUrl(kind, arg),              // where to fetch Intel's signed collateral (TCB info, QE identity, CRLs)
+     gpuUrl                          // NVIDIA NRAS endpoint
    }
 */
 
 import { newClientKeys, encryptTo, openRequestField, decryptWith, verifyEd25519 } from './e2ee.js?v=14';
-import { verifyTdxQuote } from './dcap.js?v=14';
+import { verifyTdxQuote, checkCollateral } from './dcap.js?v=17';
 
 export const NEARAI = 'https://cloud-api.near.ai/v1';
 const ALGO = 'ed25519';
 export const DEFAULT_MODEL = 'Qwen/Qwen3.8-27B';
 export const RECEIPT_VERSION = 2;
 
-const OPTIMIZER_BASE = [
-  'You edit system prompts for production AI apps. Goal: the same behaviour in fewer tokens.',
-  'Keep every rule, limit, number, name, tone requirement, output format and refusal. Never add a rule.',
-  'Remove repetition, filler, politeness padding, rules stated twice and examples that restate a rule.',
-];
-const OPTIMIZER_AGGRESSIVE = [
-  'You edit system prompts for production AI apps. Goal: the shortest prompt that still works.',
-  'Cut as hard as you can: aim for under a third of the original tokens. Keep only the rules you judge essential and drop details a capable model would infer.',
-];
-const OPTIMIZER_FORMAT = [
-  'Reply with JSON only, no code fence:',
-  '{"optimized": "<the new system prompt>", "changes": [{"change": "<what you cut or merged>", "why": "<why behaviour stays the same>"}], "kept": ["<each hard rule you preserved, in a few words>"]}',
-];
-const OPTIMIZER_EXTREME = [
-  'You edit system prompts for production AI apps. Hard budget: the new prompt must be 40 words or fewer.',
-  'Fit the budget whatever it takes: merge, compress and drop the rules you judge least important.',
-];
 const SCAN_SYSTEM = [
   'Find every sensitive item in the user\'s text: person names, ages, dates of birth, contact details, addresses, ID or account numbers, health data (conditions, test results, measurements), medications, financial details, employer or school names.',
   'Copy each item exactly as it appears, the shortest span that is sensitive. Do not add items that are not in the text.',
@@ -53,8 +37,6 @@ export function parseScan(text, message) {
   } catch { return []; }
 }
 
-export const MODES = { careful: 'Careful', aggressive: 'Aggressive', extreme: 'Extreme (40 words)' };
-const optimizerSystem = (mode) => [...({ aggressive: OPTIMIZER_AGGRESSIVE, extreme: OPTIMIZER_EXTREME }[mode] || OPTIMIZER_BASE), ...OPTIMIZER_FORMAT].join('\n');
 
 const toHex = (b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('');
 const fromHex = (h) => Uint8Array.from(strip0x(h).match(/../g) || [], (x) => parseInt(x, 16));
@@ -148,13 +130,33 @@ async function postJson(deps, url, body) {
   throw last;
 }
 
-/** Ask Intel's DCAP chain (via Phala's verifier) and NVIDIA's NRAS directly. Results stored in a receipt are never trusted. */
+/* Intel's signed collateral, fetched once per kind and kept for 10 minutes. Every piece is checked
+   against Intel's signature in checkCollateral, so where it was fetched from does not matter. */
+const collateralCache = new Map();
+function collateralGetter(deps) {
+  return (kind, arg = '') => {
+    const k = `${kind}:${arg}`; const hit = collateralCache.get(k);
+    if (hit && Date.now() - hit.at < 600000) return hit.p;
+    const p = (async () => {
+      let r;
+      try { r = await deps.fetch(deps.pcsUrl(kind, arg)); } catch (e) { throw Object.assign(new Error(`Intel's collateral service unreachable (${e.message || e})`), { unreachable: true }); }
+      if (!r.ok) throw Object.assign(new Error(`Intel's collateral service answered HTTP ${r.status}`), { unreachable: r.status === 429 || r.status >= 500 });
+      const chain = r.headers.get('tcb-info-issuer-chain') || r.headers.get('sgx-enclave-identity-issuer-chain') || r.headers.get('sgx-pck-crl-issuer-chain');
+      return kind.endsWith('crl') ? { bytes: new Uint8Array(await r.arrayBuffer()), chain } : { text: await r.text(), chain };
+    })();
+    p.catch(() => collateralCache.delete(k));
+    collateralCache.set(k, { at: Date.now(), p });
+    return p;
+  };
+}
+/** The full DCAP check of a TDX quote, in-process: signature chain plus Intel's TCB status and revocation lists. */
+export const intelCheck = (quote, deps) => checkCollateral(strip0x(quote), collateralGetter(deps));
+
+/** Intel's collateral and NVIDIA's NRAS, asked now. Results stored in a receipt are never trusted. */
 export async function vendorChecks(m, deps) {
   const out = { tdx: null, gpu: null };
-  try {
-    const j = await postJson(deps, deps.tdxUrl, JSON.stringify({ hex: strip0x(m.intel_quote) }));
-    out.tdx = { verified: j?.quote?.verified === true, verified_at: j?.verified_at || null };
-  } catch (e) { out.tdx = { verified: false, unreachable: true, error: `verifier unreachable (${e.message || e})` }; }
+  const c = await intelCheck(m.intel_quote, deps);
+  out.tdx = { verified: c.ok, unreachable: !!c.unreachable, status: c.status, evaluation: c.evaluation, advisories: c.advisories, error: c.ok ? null : c.error };
   try {
     const [j, jwks] = await Promise.all([postJson(deps, deps.gpuUrl, m.nvidia_payload), deps.fetch(deps.jwksUrl || NRAS_JWKS).then((r) => r.json())]);
     // Every token NVIDIA returns (the platform result and one per GPU) must carry NVIDIA's signature.
@@ -194,7 +196,8 @@ export async function checkAttestation(report, nonce, model, vendor, live) {
   const dcap = m.intel_quote ? verifyTdxQuote(m.intel_quote) : { ok: false, steps: {} };
   const failedSteps = Object.entries(dcap.steps).filter(([, ok]) => !ok).map(([k]) => k);
   rows.push({ id: 'intel-sig', label: 'Intel\'s signature on the quote checks out, here', ok: dcap.ok, detail: dcap.ok ? `signed by Intel's TDX quoting enclave; PCK certificate chain to Intel's pinned root key, checked here with no verifier service` : `failed: ${failedSteps.join(', ') || dcap.error}` });
-  rows.push({ id: 'intel', label: 'Intel\'s DCAP verifier accepts the quote', ok: !!vendor?.tdx?.verified, unreachable: !!vendor?.tdx?.unreachable, detail: vendor?.tdx?.error || `checked just now with Phala's DCAP verifier, which adds Intel's TCB status and revocation lists` });
+  const t = vendor?.tdx;
+  rows.push({ id: 'intel', label: 'Intel says the platform is up to date and not revoked', ok: !!t?.verified, unreachable: !!t?.unreachable, detail: t?.error || `TCB ${t?.status} (Intel TCB evaluation ${t?.evaluation})${t?.advisories?.length ? `, advisories ${t.advisories.join(', ')}` : ''}; PCK certificate and CA not revoked; quoting enclave matches Intel's identity. Intel-signed collateral, checked here` });
   rows.push({ id: 'nvidia', label: 'NVIDIA attests the GPUs', ok: !!vendor?.gpu?.verified && strip0x(vendor.gpu.nonce) === strip0x(nonce) && vendor.gpu.noDebug, unreachable: !!vendor?.gpu?.unreachable, detail: vendor?.gpu?.error || `${vendor?.gpu?.gpus || 0} GPU${vendor?.gpu?.gpus === 1 ? '' : 's'}, each token's NVIDIA signature checked here, this nonce, debug off, secure boot on` });
   if (live) {
     const sameApp = !!live.app?.ok && live.app.appId === app.appId;
@@ -328,7 +331,8 @@ export async function codeChecks(report, nonce, model, deps, { offline = false }
   const [compose, deploy, gateway] = await Promise.all([composeCheck(m), deployLog(m, nonce, model), gatewayCheck(report, nonce)]);
   const intel = async (q) => {
     if (offline || !q) return null;
-    try { const j = await postJson(deps, deps.tdxUrl, JSON.stringify({ hex: strip0x(q) })); return j?.quote?.verified === true; } catch { return null; }
+    const c = await intelCheck(q, deps);
+    return c.ok ? true : c.unreachable ? null : false;
   };
   [deploy.intel, gateway.intel, deploy.source] = await Promise.all([intel(deploy.quote), intel(gateway.quote), offline ? null : deployFile(deploy.containers?.[0], model, deps)]);
   delete deploy.quote; delete gateway.quote;
@@ -397,66 +401,6 @@ export async function checkCall(call, signer, deps) {
   return { ok: hashesOk && signerOk && attestedOk, hashesOk, signerOk, attestedOk, kind: sig.signature_kind || null, recovered };
 }
 
-/** Parse the optimiser's JSON, tolerating a code fence or stray prose. */
-export function parseOptimizer(text) {
-  const s = String(text).replace(/```(json)?/g, '');
-  const a = s.indexOf('{'); const b = s.lastIndexOf('}');
-  if (a < 0 || b <= a) return null;
-  try { const j = JSON.parse(s.slice(a, b + 1)); return typeof j.optimized === 'string' && j.optimized.trim() ? j : null; } catch { return null; }
-}
-
-/** Case-insensitive must / must-not checks on a reply. "a | b" accepts either. */
-export function scoreReply(reply, test) {
-  const low = reply.toLowerCase();
-  const has = (m) => m.split('|').map((x) => x.trim().toLowerCase()).filter(Boolean).some((x) => low.includes(x));
-  const fails = [];
-  for (const m of test.must || []) if (m && !has(m)) fails.push(`missing "${m}"`);
-  for (const m of test.mustNot || []) if (m && has(m)) fails.push(`contains "${m}"`);
-  return { pass: fails.length === 0, fails };
-}
-
-async function pool(items, n, fn) {
-  const out = new Array(items.length); let i = 0;
-  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) { const k = i++; out[k] = await fn(items[k], k); } }));
-  return out;
-}
-
-/** Full run. The prompt is sent only after the attestation passes. Returns a receipt anyone can check with verifyReceipt. */
-export async function runLab({ key, model = DEFAULT_MODEL, prompt, tests, mode = 'careful', onStep = () => {} }, deps) {
-  const nonce = newNonce();
-  onStep('attest', 'Asking NEAR AI for a fresh hardware attestation');
-  const report = await fetchAttestation(model, nonce, deps);
-  if (report.error) throw new Error(/external provider/i.test(report.error) ? `Refused before sending: NEAR AI runs ${model} at an outside provider, not in its own TEE. Nothing was sent.` : `Attestation failed, nothing was sent: ${report.error}`);
-  if (privacyKind(report) !== 'model-tee') throw new Error(`${model} does not run in its own TEE on NEAR AI Cloud. Pick a model marked Private.`);
-  onStep('vendor', 'Checking the quote with Intel and the GPUs with NVIDIA');
-  const vendor = await vendorChecks(modelAttestation(report, model), deps);
-  const att = await checkAttestation(report, nonce, model, vendor);
-  const bad = att.rows.filter((r) => !r.ok);
-  if (bad.length) throw new Error(`Nothing was sent: the enclave did not pass "${bad[0].label}" (${bad[0].detail}).`);
-  if (!att.ed) throw new Error('NEAR AI did not return an Ed25519 key for this model, so the prompt cannot be encrypted to it. Nothing was sent.');
-  const modelPub = att.signer;
-
-  onStep('optimize', 'Optimising the prompt inside the enclave');
-  const optCall = await chat({ key, model, modelPub, maxTokens: 6000, messages: [{ role: 'system', content: optimizerSystem(mode) }, { role: 'user', content: prompt }] }, deps);
-  // Authenticate the optimiser's reply before its output is used in any further call.
-  const optCheck = await checkCall(optCall, modelPub, deps);
-  const optOpen = openCall(optCall, modelPub);
-  if (!optCheck.ok || !optOpen.e2ee) throw new Error('The optimiser reply did not verify (signature or encryption), so no test calls were sent.');
-  const opt = parseOptimizer(optOpen.reply);
-  if (!opt) throw new Error('The model did not return a usable optimised prompt. Run it again.');
-
-  onStep('tests', `Running ${tests.length} test case${tests.length === 1 ? '' : 's'} on both prompts`);
-  const jobs = tests.flatMap((t, i) => [['original', prompt], ['optimized', opt.optimized]].map(([which, sys]) => ({ i, which, sys, t })));
-  const calls = await pool(jobs, 4, (j) => chat({ key, model, modelPub, maxTokens: 1500, messages: [{ role: 'system', content: j.sys }, { role: 'user', content: j.t.input }] }, deps).then((c) => ({ ...c, role: `test-${j.i}-${j.which}` })));
-
-  return {
-    version: RECEIPT_VERSION, tool: 'https://prompt20.com/tools/private-prompt/', created: new Date().toISOString(),
-    kind: 'optimize', model, mode, nonce, attestation: report,
-    original: prompt, optimized: opt.optimized, tests,
-    calls: [{ ...optCall, role: 'optimize' }, ...calls],
-  };
-}
-
 /** Ask one sensitive question privately: same checks before sending, one encrypted call, a receipt. */
 export async function runAsk({ key, model = DEFAULT_MODEL, system = '', message, onStep = () => {} }, deps) {
   const nonce = newNonce();
@@ -469,7 +413,7 @@ export async function runAsk({ key, model = DEFAULT_MODEL, system = '', message,
   const bad = att.rows.filter((r) => !r.ok);
   if (bad.length) throw new Error(`Nothing was sent: the enclave did not pass "${bad[0].label}" (${bad[0].detail}).`);
   if (!att.ed) throw new Error('NEAR AI did not return an Ed25519 key for this model, so the message cannot be encrypted to it. Nothing was sent.');
-  onStep('optimize', 'Sending your message, encrypted to the enclave key');
+  onStep('send', 'Sending your message, encrypted to the enclave key');
   const messages = [...(system.trim() ? [{ role: 'system', content: system }] : []), { role: 'user', content: message }];
   // Two encrypted calls in parallel: the answer, and a scan that lists the sensitive items in the message.
   const [call, scan] = await Promise.all([
@@ -484,6 +428,7 @@ export async function runAsk({ key, model = DEFAULT_MODEL, system = '', message,
  * `offline` skips the network: the verdict can then never be VERIFIED.
  */
 export async function verifyReceipt(rc, deps, { offline = false } = {}) {
+  if (rc.kind !== 'ask') throw new Error('This receipt is from the retired prompt-shortening mode. This version checks private messages only.');
   const m = modelAttestation(rc.attestation, rc.model);
   const [vendor, live, code] = await Promise.all(offline ? [null, null, codeChecks(rc.attestation, rc.nonce, rc.model, deps, { offline })] : [vendorChecks(m, deps), liveApp(rc.model, deps), codeChecks(rc.attestation, rc.nonce, rc.model, deps)]);
   const att = await checkAttestation(rc.attestation, rc.nonce, rc.model, vendor, live);
@@ -491,61 +436,20 @@ export async function verifyReceipt(rc, deps, { offline = false } = {}) {
 
   const calls = await Promise.all(rc.calls.map(async (c) => ({ role: c.role, id: c.id, ...(await checkCall(c, att.signer, deps)) })));
 
-  if (rc.kind === 'ask') {
-    const roles = rc.calls.map((c) => c.role);
-    const shapeOk = roles[0] === 'ask' && (roles.length === 1 || (roles.length === 2 && roles[1] === 'scan'));
-    const call = shapeOk ? rc.calls[0] : null;
-    const o = call ? openCall(call, att.signer) : { messages: [] };
-    const want = [...(String(rc.system || '').trim() ? [rc.system] : []), rc.message];
-    const scanCall = shapeOk && roles[1] === 'scan' ? rc.calls[1] : null;
-    const so = scanCall ? openCall(scanCall, att.signer) : null;
-    const scanOk = !scanCall || (so.e2ee && so.model === rc.model && so.messages.length === 2 && so.messages[1].content === rc.message);
-    const sentOk = !!call && o.model === rc.model && o.messages.length === want.length && o.messages.every((m, i) => m.content === want[i]) && scanOk;
-    const sensitive = so && scanOk ? parseScan(so.reply, rc.message) : null;
-    const structure = [
-      { id: 'e2ee', label: 'The message was encrypted to the attested key', ok: !!o.e2ee && (!so || so.e2ee), detail: 'every call opens only with the key in the quote; replies only with this run\'s one-time key' },
-      { id: 'ask', label: 'The message, reply and sensitive-item scan shown are the ones signed', ok: sentOk, detail: `${rc.calls.length} signed call${rc.calls.length === 1 ? '' : 's'} to ${rc.model}` },
-    ];
-    const allOk = !offline && att.rows.every((r) => r.ok) && calls.every((c) => c.ok) && structure.every((r) => r.ok);
-    return { ok: allOk, unreachable: att.rows.some((r) => !r.ok && r.unreachable), offline, att, code, calls, structure, tests: [], regressions: [], safe: null, reply: o.reply, sensitive, signed: { changes: [], kept: [] }, tokens: { original: null, optimized: null, savedPerCall: 0 } };
-  }
-
-  // Structure: one optimiser call, then exactly one original and one optimised call per test, each
-  // sending the prompt and test message it claims, all to the receipt's model.
-  const tests = Array.isArray(rc.tests) ? rc.tests : [];
-  const want = ['optimize', ...tests.flatMap((_, i) => [`test-${i}-original`, `test-${i}-optimized`])];
   const roles = rc.calls.map((c) => c.role);
-  const rolesOk = tests.length > 0 && roles.length === want.length && want.every((r) => roles.filter((x) => x === r).length === 1);
-  // Every field is opened against the attested key; structure checks run on the opened plaintext.
-  const opened = new Map(rc.calls.map((c) => [c, openCall(c, att.signer)]));
-  const req = (c) => (c ? opened.get(c) : null) || { messages: [] };
-  const modelOk = rc.calls.every((c) => req(c).model === rc.model);
-  const e2eeCount = rc.calls.filter((c) => req(c).e2ee).length;
-  const optCall = rc.calls.find((c) => c.role === 'optimize');
-  const signed = parseOptimizer(req(optCall).reply) || {};
-  const optOk = signed.optimized === rc.optimized && req(optCall).messages?.[1]?.content === rc.original;
-  const sentOk = rolesOk && tests.every((t, i) => ['original', 'optimized'].every((w) => {
-    const msgs = req(rc.calls.find((c) => c.role === `test-${i}-${w}`)).messages || [];
-    return msgs.length === 2 && msgs[0].content === (w === 'original' ? rc.original : rc.optimized) && msgs[1].content === t.input;
-  }));
-
-  const results = tests.map((t, i) => {
-    const side = (w) => { const c = rc.calls.find((x) => x.role === `test-${i}-${w}`); if (!c) return null; const o = req(c); return { reply: o.reply, tokens: o.tokens, ...scoreReply(o.reply, t) }; };
-    return { ...t, original: side('original'), optimized: side('optimized') };
-  });
-  const saved = results.map((t) => (t.original?.tokens ?? 0) - (t.optimized?.tokens ?? 0));
+  const shapeOk = roles[0] === 'ask' && (roles.length === 1 || (roles.length === 2 && roles[1] === 'scan'));
+  const call = shapeOk ? rc.calls[0] : null;
+  const o = call ? openCall(call, att.signer) : { messages: [] };
+  const want = [...(String(rc.system || '').trim() ? [rc.system] : []), rc.message];
+  const scanCall = shapeOk && roles[1] === 'scan' ? rc.calls[1] : null;
+  const so = scanCall ? openCall(scanCall, att.signer) : null;
+  const scanOk = !scanCall || (so.e2ee && so.model === rc.model && so.messages.length === 2 && so.messages[1].content === rc.message);
+  const sentOk = !!call && o.model === rc.model && o.messages.length === want.length && o.messages.every((m, i) => m.content === want[i]) && scanOk;
+  const sensitive = so && scanOk ? parseScan(so.reply, rc.message) : null;
   const structure = [
-    { id: 'e2ee', label: 'Every message was encrypted to the attested key', ok: e2eeCount === rc.calls.length && rc.calls.length > 0, detail: `${e2eeCount} of ${rc.calls.length} calls: each prompt field opens only with the key in the quote, each reply only with this run's one-time key` },
-    { id: 'optimized', label: 'The optimised prompt shown is the one the model returned', ok: optOk, detail: 'read from the signed optimiser reply' },
-    { id: 'tests', label: 'Each test ran once per prompt, with the message shown', ok: sentOk && modelOk, detail: `${tests.length} test${tests.length === 1 ? '' : 's'}, ${rc.calls.length} signed calls, all to ${rc.model}` },
+    { id: 'e2ee', label: 'The message was encrypted to the attested key', ok: !!o.e2ee && (!so || so.e2ee), detail: 'every call opens only with the key in the quote; replies only with this run\'s one-time key' },
+    { id: 'ask', label: 'The message, reply and sensitive-item scan shown are the ones signed', ok: sentOk, detail: `${rc.calls.length} signed call${rc.calls.length === 1 ? '' : 's'} to ${rc.model}` },
   ];
-  // Evidence and adoption are separate verdicts: a run can be fully verified and still unsafe to adopt.
-  const regressions = results.map((t, i) => ({ i, t })).filter(({ t }) => t.original?.pass && !t.optimized?.pass);
   const allOk = !offline && att.rows.every((r) => r.ok) && calls.every((c) => c.ok) && structure.every((r) => r.ok);
-  const unreachable = att.rows.some((r) => !r.ok && r.unreachable);
-  return {
-    ok: allOk, unreachable, offline, att, code, calls, structure, tests: results, regressions, safe: allOk && regressions.length === 0 && results.every((t) => t.optimized?.pass),
-    signed: { changes: Array.isArray(signed.changes) ? signed.changes : [], kept: Array.isArray(signed.kept) ? signed.kept : [] },
-    tokens: { original: results[0]?.original?.tokens ?? null, optimized: results[0]?.optimized?.tokens ?? null, savedPerCall: saved.length ? Math.round(saved.reduce((a, b) => a + b, 0) / saved.length) : 0 },
-  };
+  return { ok: allOk, unreachable: att.rows.some((r) => !r.ok && r.unreachable), offline, att, code, calls, structure, reply: o.reply, sensitive };
 }

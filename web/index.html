@@ -2,27 +2,22 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloud-api.near.ai https://nras.attestation.nvidia.com https://raw.githubusercontent.com https://data.prompt20.com; form-action 'none'; base-uri 'self'">
 <title>Private Prompt Lab: verifiable private AI in a TEE | Prompt20</title>
-<meta name="description" content="Shorten a system prompt inside a sealed GPU enclave on NEAR AI Cloud, test it on your own cases, and check the Intel TDX and NVIDIA proof in your browser.">
+<meta name="description" content="Send a sensitive message to an AI that only a sealed GPU enclave on NEAR AI Cloud can read, and check the Intel TDX and NVIDIA proof in your browser.">
 <link rel="canonical" href="https://prompt20.com/tools/private-prompt/"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <meta property="og:title" content="Private Prompt Lab | Prompt20"><meta property="og:description" content="Check the enclave, encrypt to its key, verify the signed reply. See the ciphertext the gateway received."><meta property="og:type" content="website"><meta property="og:url" content="https://prompt20.com/tools/private-prompt/"><meta property="og:image" content="https://prompt20.com/og.png?v=2"><meta property="og:site_name" content="Prompt20"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://prompt20.com/og.png?v=2">
 <meta name="author" content="Edward Tay">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=13">
 <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Prompt20","item":"https://prompt20.com/"},{"@type":"ListItem","position":2,"name":"Tools","item":"https://prompt20.com/tools/"},{"@type":"ListItem","position":3,"name":"Private Prompt Lab","item":"https://prompt20.com/tools/private-prompt/"}]},{"@type":"WebApplication","name":"Private Prompt Lab","url":"https://prompt20.com/tools/private-prompt/","applicationCategory":"DeveloperApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Send a sensitive prompt to an AI model in a NEAR AI Cloud TEE, encrypted in the browser to the key in its Intel TDX quote, and verify the TDX quote, NVIDIA GPU attestation and every signed reply in the browser.","author":{"@type":"Person","name":"Edward Tay"}}]}</script>
-<script src="/tools/models-data.js" defer></script>
-<script type="module" src="lab.js?v=15"></script>
+<script type="module" src="lab.js?v=17"></script>
 </head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
 <symbol id="i-lab" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><path d="M8.5 15.5h2M12 15.5h3.5M8.5 18h5"/></symbol>
 <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4"/><path d="M10.5 12.5L20 3M16 7l3 3M14 9l2 2"/></symbol>
 <symbol id="i-chip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2.5V6M15 2.5V6M9 18v3.5M15 18v3.5M2.5 9H6M2.5 15H6M18 9h3.5M18 15h3.5"/><path d="M10 12l1.5 1.5L14.5 10"/></symbol>
 <symbol id="i-doc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
-<symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M8 12.5l2.8 2.8L16.5 9"/></symbol>
-<symbol id="i-coin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M14.8 9.2c-.5-.9-1.6-1.4-2.8-1.4-1.6 0-2.8.8-2.8 2.1 0 3 5.8 1.4 5.8 4.3 0 1.3-1.3 2.1-3 2.1-1.3 0-2.5-.6-3-1.5M12 6v1.8M12 16.3V18"/></symbol>
-<symbol id="i-scissors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6.5" r="2.8"/><circle cx="6" cy="17.5" r="2.8"/><path d="M8.3 8.2L20 17M8.3 15.8L20 7"/></symbol>
 <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3.5v6c0 5-3.4 8.7-8 10.5-4.6-1.8-8-5.5-8-10.5v-6z"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></symbol>
-<symbol id="i-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></symbol>
 <symbol id="i-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17.5v.3"/></symbol>
 <symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4.5v15l12-7.5z"/></symbol>
 <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5"/><path d="M3 16.5l9 4.5 9-4.5"/></symbol>
@@ -68,18 +63,12 @@
 
     <div id="p-check" role="tabpanel" aria-labelledby="tab-check" class="panel-in">
       <p class="hint">Recorded runs, re-checked live. <button type="button" class="itip" data-tip="Made-up data. Each recorded proof is checked again now, against Intel, NVIDIA and NEAR AI. No key needed." aria-label="What is this?">i</button></p>
-      <button type="button" class="sp-cta" id="check-ask"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg>A private health question</button>
-      <button type="button" class="sp-cta ghost" id="check-careful"><svg class="ic sm" aria-hidden="true"><use href="#i-doc"/></svg>A company prompt, shortened</button>
-      <button type="button" class="sp-cta ghost" id="check-extreme"><svg class="ic sm" aria-hidden="true"><use href="#i-scissors"/></svg>Shortened too far: caught</button>
+      <button type="button" class="sp-cta" id="check-ask"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg>Re-check the recorded question</button>
       <button type="button" class="link" id="go-try">Have a NEAR AI key? Try your own message</button>
       <details class="more"><summary>Check a saved receipt</summary><label class="sp-cta ghost file">Open a receipt file<input type="file" id="receipt-file" accept="application/json,.json"></label></details>
     </div>
 
     <div id="p-run" role="tabpanel" aria-labelledby="tab-run" class="panel-in" hidden>
-      <div class="sp-seg small" role="group" aria-label="What to run">
-        <button type="button" id="pre-ask" aria-pressed="true">Ask privately</button>
-        <button type="button" id="pre-opt" aria-pressed="false">Optimise a prompt</button>
-      </div>
       <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-key"/></svg>NEAR AI key</span>
         <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-...">
         <span class="hint">Never stored. <a href="https://cloud.near.ai" target="_blank" rel="noopener">Get a key</a> · <a href="https://nearbuilders.org/join" target="_blank" rel="noopener">$10 free credits</a></span>
@@ -89,31 +78,13 @@
         <span class="hint" id="model-hint">Private models only. <button type="button" class="itip" data-tip="Only 12 of NEAR AI's 63 models run in their own TEE (a sealed enclave). The rest, including Claude, GPT and Gemini, go to outside providers. The Models tab checks each one live." aria-label="What is this?">i</button></span>
       </label>
 
-      <div id="ask-fields" class="panel-in">
+      <div id="ask-fields">
         <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-doc"/></svg>Instructions <span class="sub">optional</span><span class="grow"></span><button type="button" class="link" id="load-ask">Sample</button></span>
           <textarea id="ask-system" rows="2" spellcheck="false"></textarea></label>
         <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-lab"/></svg>Your message</span>
           <textarea id="ask-message" rows="6" spellcheck="false" placeholder="Something you would not paste into a normal chatbot"></textarea></label>
       </div>
 
-      <div id="opt-fields" class="panel-in" hidden>
-        <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-doc"/></svg>System prompt <span class="grow"></span><button type="button" class="link" id="load-sample">Sample</button></span>
-          <textarea id="prompt" rows="6" spellcheck="false"></textarea>
-          <span class="hint" id="prompt-count"></span>
-        </label>
-        <details class="cf tests-box"><summary class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-check"/></svg>Test cases <span id="test-count" class="sub"></span></summary>
-          <p class="hint">Both prompts answer each message. <button type="button" class="itip" data-tip="Must and must-not are phrases the reply should or should not contain. Separate alternatives with |. A regression is a test the original passes and the shortened prompt fails." aria-label="What is this?">i</button></p>
-          <div id="tests" class="tests"></div>
-          <button type="button" class="btn ghost" id="add-test">Add a test case</button>
-        </details>
-        <label class="cf" for="mode"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-scissors"/></svg>How hard to cut <button type="button" class="itip" data-tip="Careful keeps every rule. Extreme forces 40 words, to show that the tests catch what breaks." aria-label="What is this?">i</button></span>
-          <select id="mode"><option value="careful">Careful: keep every rule</option><option value="aggressive">Aggressive: about a third</option><option value="extreme">Extreme: 40 words</option></select>
-        </label>
-        <div class="cf-2">
-          <label class="cf" for="deploy"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-coin"/></svg>Deployed on <button type="button" class="itip" data-tip="Your production model, to price the tokens saved per month." aria-label="What is this?">i</button></span><select id="deploy"><option value="">Loading prices</option></select></label>
-          <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-list"/></svg>Calls a month</span><input type="number" id="calls" min="1" step="1000" value="1000000" inputmode="numeric"></label>
-        </div>
-      </div>
       <button type="button" class="sp-cta" id="run"><svg class="ic sm" aria-hidden="true"><use href="#i-play"/></svg><span id="run-label">Send privately</span></button>
     </div>
 
@@ -125,9 +96,9 @@
 
   <div class="sp-stage">
     <div id="stage-run">
-      <h2 class="sp-k"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg><span id="stage-title">Checking a recorded run</span><span class="grow"></span><span id="adopt" class="vbadge" hidden></span><span id="verdict" class="vbadge">Checking</span></h2>
+      <h2 class="sp-k"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg><span id="stage-title">Checking a recorded run</span><span class="grow"></span><span id="verdict" class="vbadge">Checking</span></h2>
       <ol class="gate" id="gate" aria-label="Send gate">
-        <li data-g="enclave" tabindex="0" data-tip="The model runs inside a sealed Intel TDX enclave with NVIDIA confidential GPUs. Intel's signature is checked in this page; NVIDIA's tokens too.">Real secure hardware</li>
+        <li data-g="enclave" tabindex="0" data-tip="The model runs inside a sealed Intel TDX enclave with NVIDIA confidential GPUs. This page checks Intel's signature, that Intel lists the platform as up to date and not revoked, and NVIDIA's signed GPU tokens.">Real secure hardware</li>
         <li data-g="fresh" tabindex="0" data-tip="A random number made for this run is inside the hardware proof, so an old proof cannot be replayed.">Proof made for this run</li>
         <li data-g="key" tabindex="0" data-tip="The hardware proof names the chip's own key. Only that chip can unlock the message.">Key matches the chip</li>
         <li data-g="enc" tabindex="0" data-tip="Your message is encrypted in your browser to that key before it leaves (X25519, XChaCha20-Poly1305).">Locked before sending</li>
@@ -137,13 +108,9 @@
       <p id="gate-note" class="gate-note" role="status" aria-live="polite"></p>
       <p id="run-error" class="err" role="alert" hidden></p>
 
-      <div class="who-row"><h3 class="who-h">Who can read your prompt? <button type="button" class="itip" data-tip="Click a party to see exactly what it receives. The gateway view is the real request NEAR AI got. Switch to Standard AI API to compare." aria-label="What is this?">i</button></h3><span class="grow"></span>
-        <div class="sp-seg small cmp" role="group" aria-label="Compare"><button type="button" id="cmp-lab" aria-pressed="true">This lab</button><button type="button" id="cmp-api" aria-pressed="false">Standard AI API</button></div></div>
+      <div class="who-row"><h3 class="who-h">Who can read your prompt? <button type="button" class="itip" data-tip="Click a party to see exactly what it receives. The gateway view is the real request NEAR AI got; the standard AI API view is the same message sent the usual way." aria-label="What is this?">i</button></h3><span class="grow"></span></div>
       <div class="meter" id="meter">
-        <div class="mrow" data-tip="Characters of your message the receiving service can read, measured on the real request bytes." tabindex="0"><span class="ml">This lab</span><span class="mbar"><i id="m-lab"></i></span><span class="mv" id="mv-lab"></span></div>
-        <div class="mrow" data-tip="The same message in a standard AI API request (an illustration). The provider reads all of it. Metadata (IP, timing, sizes) is visible in both." tabindex="0"><span class="ml">Standard API</span><span class="mbar bad"><i id="m-api"></i></span><span class="mv" id="mv-api"></span></div>
-        <div class="sens-row" id="sens-row" hidden><span class="ml">Sensitive items <button type="button" class="itip" data-tip="A second encrypted call asks the chip itself to list sensitive items in your message. Only items found verbatim are kept and highlighted." aria-label="What is this?">i</button></span><span id="sens-chips" class="chips"></span></div>
-        <p class="hint" id="m-note"></p>
+        <div class="sens-row" id="sens-row"><span class="ml">Readable in transit <button type="button" class="itip" data-tip="Measured on the real request bytes. A second encrypted call asks the chip itself to list the sensitive items in your message; only items found verbatim count. Metadata (IP, timing, sizes, model) is visible either way." aria-label="What is this?">i</button></span><span id="sens-chips" class="chips"></span></div>
         <p class="hint cost" id="cost-line" hidden></p>
       </div>
       <div class="flow" id="flow" role="group" aria-label="See what each party sees">
@@ -152,6 +119,7 @@
         <button type="button" class="node cipher" data-p="gateway" data-tip="NEAR AI's gateway relays the request. It sees ciphertext plus metadata: model, sizes, timing, IP and API key." aria-pressed="false"><b>NEAR AI gateway</b><span class="nv">Ciphertext</span></button>
         <span class="wirel" aria-hidden="true"><i class="pkt"></i></span>
         <button type="button" class="node see enclave" data-p="enclave" data-tip="The only place that can decrypt: the chip holding the key from the hardware proof." aria-pressed="false"><b>The enclave</b><span class="nv">Plaintext</span></button>
+        <button type="button" class="node leaky off" data-p="api" data-tip="For comparison: the same message sent to a normal AI API. TLS protects it on the way, then the provider reads every word." aria-pressed="false"><b>A standard AI API</b><span class="nv">Reads it all</span></button>
         <button type="button" class="node none off" data-p="prompt20" data-tip="This site is not on the path. Your key and message go straight from your browser to NEAR AI." aria-pressed="false"><b>prompt20.com</b><span class="nv">Not on the path</span></button>
       </div>
       <div class="lens">
@@ -182,6 +150,10 @@
 </section>
 
 <div class="pl">
+<section class="card" id="reply-card" hidden><h2><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg>The reply, decrypted in your browser</h2>
+  <div class="dtext" id="reply-text"></div>
+</section>
+
 <section class="card fold" id="code-card" aria-labelledby="code-title" hidden>
   <details><summary><h2 id="code-title"><svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg>What code is running</h2><span id="code-sum" class="pill"></span></summary>
   <p class="hint">From the chip's hardware proof down to the inference engine, each link checked here.</p>
@@ -194,7 +166,7 @@
   <ul class="plain">
     <li>NEAR AI's gateway sees metadata: your IP, timing, sizes, the model and your API key.</li>
     <li>You trust this page's code and NEAR AI's key handling. Attestation proves what ran, not that nothing is logged.</li>
-    <li>Intel's and NVIDIA's signatures are checked here. Intel's TCB status and revocation come from Phala's verifier, via prompt20.com.</li>
+    <li>Intel's and NVIDIA's evidence is checked in this page. prompt20.com only relays Intel's signed collateral and NVIDIA's verifier, which send no CORS headers.</li>
     <li>CPU and GPU proofs are linked only by the shared nonce.</li>
     <li>Model weights are named by a label in NEAR AI's deploy file. The engine is pinned; the weights are not measured.</li>
     <li>One key covers all copies of a model, not one machine.</li>
@@ -215,27 +187,6 @@
   </details>
 </section>
 
-<section class="card" id="reply-card" hidden><h2><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg>The reply, decrypted in your browser</h2>
-  <div class="dtext" id="reply-text"></div>
-</section>
-
-<section id="results" hidden>
-  <section class="card"><h2><svg class="ic" aria-hidden="true"><use href="#i-scissors"/></svg>The private prompt edit</h2>
-    <div class="sp-tiles n3">
-      <div class="vt best"><div class="vt-h"><svg class="ic sm" aria-hidden="true"><use href="#i-scissors"/></svg><span>Tokens per call</span></div><span class="vt-v" id="t-tokens">&nbsp;</span><span class="vt-s" id="t-tokens-s"></span></div>
-      <div class="vt"><div class="vt-h"><svg class="ic sm" aria-hidden="true"><use href="#i-coin"/></svg><span>Saving a month</span></div><span class="vt-v" id="t-cost">&nbsp;</span><span class="vt-s" id="t-cost-s"></span></div>
-      <div class="vt" id="tests-tile"><div class="vt-h"><svg class="ic sm" aria-hidden="true"><use href="#i-check"/></svg><span>Tests passing</span></div><span class="vt-v" id="t-tests">&nbsp;</span><span class="vt-s" id="t-tests-s"></span></div>
-    </div>
-    <div class="diff" id="diff-card"><div><h3>Original</h3><div class="dtext" id="d-old"></div></div><div><h3>Optimised</h3><div class="dtext" id="d-new"></div></div></div>
-    <div class="actions"><button type="button" class="btn ghost" id="copy-opt">Copy the optimised prompt</button></div>
-  </section>
-  <section class="card"><h2><svg class="ic" aria-hidden="true"><use href="#i-scissors"/></svg>What changed</h2>
-    <div class="grid2"><div><h3>Cuts</h3><ul id="changes" class="plain"></ul></div><div><h3>Rules the model says it kept</h3><ul id="kept" class="plain"></ul></div></div>
-  </section>
-  <section class="card"><h2><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Test cases</h2>
-    <div class="scroll" tabindex="0" role="region" aria-label="Test results, scrolls horizontally"><table class="tbl tests-t" id="tests-t"><thead><tr><th scope="col">Message</th><th scope="col">Original prompt</th><th scope="col">Optimised prompt</th></tr></thead><tbody></tbody></table></div>
-  </section>
-</section>
 
 <footer><a href="/tools/">More Prompt20 tools</a> · <a href="/tools/cost/">AI Cost Calculator</a> · <a href="/tools/models/">Model Hub</a> · <a href="https://github.com/edwardtay/private-prompt-lab" rel="noopener">Source</a></footer>
 </div>
