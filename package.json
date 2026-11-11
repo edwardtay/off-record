@@ -6,6 +6,7 @@
   "description": "Verifiable private AI: check a NEAR AI Cloud enclave, encrypt your prompt to its attested key, verify the signed reply.",
   "license": "MIT",
   "scripts": {
+    "test": "node --test test/",
     "start": "node scripts/serve.mjs",
     "verify": "node scripts/verify-receipt.mjs web/sample-run.json",
     "swap-test": "node scripts/verify-receipt.mjs web/sample-run.json --swap-test",

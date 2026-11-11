@@ -208,6 +208,127 @@ async function liveApp(model, deps) {
   } catch { return { unreachable: true }; }
 }
 
+/* ---- What code runs: the compose file, NEAR AI's deploy log and the gateway's own enclave ---- */
+
+/** JSON as Python json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False) writes it: the form NEAR AI hashes. */
+export function canonicalJson(v) {
+  const str = (x) => JSON.stringify(x);
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(',')}]`;
+  if (v && typeof v === 'object') return `{${Object.keys(v).sort().map((k) => `${str(k)}:${canonicalJson(v[k])}`).join(',')}}`;
+  return str(v);
+}
+const MEASURE = [184, 232]; // MRTD
+const MRCONFIG = [232, 280]; // MRCONFIGID: dstack puts 0x01 || sha256(app_compose) here
+const RTMRS = [376, 568];   // RTMR0 to RTMR3
+const servesModel = (svc, model) => {
+  const name = String(model).split('/').pop();
+  const keys = [compact(name), compact(name.split('-').slice(0, 2).join('-'))];
+  return /^model-/.test(svc || '') && [...keys, ...keys.map((k) => k.replace(/^deepseek/, 'ds'))].some((k) => compact(svc).includes(k));
+};
+const compact = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const imagesIn = (compose) => [...new Set((String(compose).match(/image:\s*["']?([^\s"']+)/g) || []).map((x) => x.replace(/image:\s*["']?/, '').replace(/^\$\{[A-Z_]+:-(.+)\}$/, '$1')))];
+
+/** The compose file the enclave booted: it must hash to the compose hash measured into RTMR3. */
+export async function composeCheck(att) {
+  const app = await measuredApp(att);
+  const compose = att?.info?.tcb_info?.app_compose;
+  if (!compose || !app.ok) return { ok: false, detail: 'no measured compose file' };
+  const hash = await sha256Hex(compose);
+  let images = []; let name = att.info.app_name || '';
+  try { const c = JSON.parse(compose); images = imagesIn(c.docker_compose_file); name = c.name || name; } catch { /* not JSON */ }
+  const configOk = slice(att.intel_quote, MRCONFIG) === `01${hash}`.padEnd(96, '0');
+  return { ok: hash === app.composeHash && configOk, configOk, hash, name, images, appId: app.appId };
+}
+
+/**
+ * NEAR AI starts the model containers at runtime with a "compose manager". Its action log is hashed
+ * (sha256 of the canonical JSON) and the hash plus this run's nonce sit in a second TDX quote from the
+ * same VM (same MRTD and RTMRs as the model's quote).
+ */
+export async function deployLog(att, nonce, model) {
+  const cm = att?.compose_manager_attestation;
+  if (!cm || !Array.isArray(cm.actions)) return { ok: false, present: false, detail: 'no deploy log in this attestation' };
+  const hash = await sha256Hex(canonicalJson(cm.actions));
+  const rd = cm.quote ? quoteReportData(cm.quote) : '';
+  const sameVm = !!cm.quote && slice(cm.quote, MEASURE) === slice(att.intel_quote, MEASURE) && slice(cm.quote, RTMRS) === slice(att.intel_quote, RTMRS);
+  const running = new Map();
+  for (const a of cm.actions) {
+    if (a.action === 'compose_down' && !a.services) { for (const [svc, up] of running) if (up.file === a.file) running.delete(svc); }
+    for (const svc of a.services || []) { if (a.action === 'compose_up') running.set(svc, a); else if (a.action === 'compose_down') running.delete(svc); }
+  }
+  let mine = [...running.entries()].filter(([svc]) => servesModel(svc, model)).sort((x, y) => String(y[1].timestamp).localeCompare(String(x[1].timestamp)));
+  // A compose_up with no service list starts the whole file: look for the model's service inside it.
+  const whole = [...cm.actions].reverse().find((a) => a.action === 'compose_up' && !a.services && a.file);
+  if (!mine.length && whole) mine = [[null, whole]];
+  const last = cm.actions[cm.actions.length - 1] || {};
+  return {
+    ok: hash === strip0x(cm.actions_hash) && rd === hash + strip0x(nonce) && sameVm,
+    present: true, hashOk: hash === strip0x(cm.actions_hash), nonceOk: rd === hash + strip0x(nonce), sameVm,
+    entries: cm.actions.length, quote: cm.quote,
+    latest: { at: last.timestamp || null, tag: last.tag || null, commit: last.commit || null, file: last.file || null },
+    containers: mine.map(([svc, a]) => ({ service: svc, at: a.timestamp, tag: a.tag, commit: a.commit, file: a.file, fileSha256: a.file_sha256 })),
+    services: running.size,
+  };
+}
+
+/* Minimal docker-compose reading: a service's image, following "<<: *anchor" merges, and its model tags. */
+function composeService(yaml, name) {
+  const lines = String(yaml).split('\n');
+  const block = (start, indent) => { const out = []; for (let i = start + 1; i < lines.length; i++) { const l = lines[i]; if (l.trim() && !l.startsWith(' '.repeat(indent + 1))) break; out.push(l); } return out; };
+  const findImage = (start, indent, depth = 0) => {
+    const b = block(start, indent);
+    const img = b.find((l) => new RegExp(`^ {${indent + 2}}image:`).test(l));
+    if (img) return { name: img.split('image:')[1].trim().replace(/^["']|["']$/g, ''), built: b.some((l) => new RegExp(`^ {${indent + 2}}build:`).test(l)) };
+    const merge = b.map((l) => l.match(new RegExp(`^ {${indent + 2}}<<: \\*([\\w-]+)`))).find(Boolean);
+    if (!merge || depth > 4) return null;
+    const at = lines.findIndex((l) => new RegExp(`^( *)[\\w-]+: &${merge[1]}\\s*$`).test(l));
+    return at < 0 ? null : findImage(at, lines[at].match(/^ */)[0].length, depth + 1);
+  };
+  const at = lines.findIndex((l) => l === `  ${name}:`);
+  if (at < 0) return null;
+  const text = block(at, 2).join('\n');
+  const tag = (k) => (text.match(new RegExp(`"${k}:([^"]+)"`)) || [])[1] || null;
+  const img = findImage(at, 2) || {};
+  return { image: img.name || null, built: !!img.built, weights: tag('model'), revision: tag('model_revision') };
+}
+
+/** Fetch the deploy file from NEAR AI's public repo at the logged commit; it must hash to the logged sha256. */
+export async function deployFile(container, model, deps) {
+  if (!container?.commit || !container.file) return null;
+  try {
+    const r = await deps.fetch(`https://raw.githubusercontent.com/nearai/cvm-compose-files/${container.commit}/${container.file}`);
+    if (!r.ok) return { ok: false, error: `GitHub HTTP ${r.status}` };
+    const text = await r.text();
+    const hash = await sha256Hex(text);
+    const service = container.service || (text.match(/^  (model-[\w.-]+):\s*$/gm) || []).map((l) => l.trim().slice(0, -1)).find((svc) => servesModel(svc, model)) || null;
+    return { ok: hash === strip0x(container.fileSha256), service, url: `https://github.com/nearai/cvm-compose-files/blob/${container.commit}/${container.file}`, ...(service ? composeService(text, service) || {} : {}) };
+  } catch (e) { return { ok: false, unreachable: true, error: String(e.message || e) }; }
+}
+
+/** NEAR AI's gateway (which relays the ciphertext) runs in its own enclave: its quote names its key and this nonce. */
+export async function gatewayCheck(report, nonce) {
+  const g = report?.gateway_attestation;
+  if (!g?.intel_quote) return { ok: false, present: false };
+  const rd = quoteReportData(g.intel_quote);
+  const key = strip0x(g.signing_address);
+  const app = await measuredApp(g);
+  const compose = await composeCheck(g);
+  return { ok: key.length === 64 && rd === key + strip0x(nonce) && app.ok && app.debug === false && compose.ok, present: true, key, app, compose, quote: g.intel_quote };
+}
+
+/** All three, with Intel asked now about the deploy-log quote and the gateway quote. */
+export async function codeChecks(report, nonce, model, deps, { offline = false } = {}) {
+  const m = modelAttestation(report, model);
+  const [compose, deploy, gateway] = await Promise.all([composeCheck(m), deployLog(m, nonce, model), gatewayCheck(report, nonce)]);
+  const intel = async (q) => {
+    if (offline || !q) return null;
+    try { const j = await postJson(deps, deps.tdxUrl, JSON.stringify({ hex: strip0x(q) })); return j?.quote?.verified === true; } catch { return null; }
+  };
+  [deploy.intel, gateway.intel, deploy.source] = await Promise.all([intel(deploy.quote), intel(gateway.quote), offline ? null : deployFile(deploy.containers?.[0], model, deps)]);
+  delete deploy.quote; delete gateway.quote;
+  return { compose, deploy, gateway };
+}
+
 /**
  * One end-to-end encrypted chat completion, keeping the exact bytes sent and received.
  * Message contents are encrypted to `modelPub` (the key in the quote); the reply comes back
@@ -358,7 +479,7 @@ export async function runAsk({ key, model = DEFAULT_MODEL, system = '', message,
  */
 export async function verifyReceipt(rc, deps, { offline = false } = {}) {
   const m = modelAttestation(rc.attestation, rc.model);
-  const [vendor, live] = offline ? [null, null] : await Promise.all([vendorChecks(m, deps), liveApp(rc.model, deps)]);
+  const [vendor, live, code] = await Promise.all(offline ? [null, null, codeChecks(rc.attestation, rc.nonce, rc.model, deps, { offline })] : [vendorChecks(m, deps), liveApp(rc.model, deps), codeChecks(rc.attestation, rc.nonce, rc.model, deps)]);
   const att = await checkAttestation(rc.attestation, rc.nonce, rc.model, vendor, live);
   if (offline) att.rows.filter((r) => r.id === 'intel' || r.id === 'nvidia').forEach((r) => { r.detail = 'not checked (offline)'; });
 
@@ -380,7 +501,7 @@ export async function verifyReceipt(rc, deps, { offline = false } = {}) {
       { id: 'ask', label: 'The message, reply and sensitive-item scan shown are the ones signed', ok: sentOk, detail: `${rc.calls.length} signed call${rc.calls.length === 1 ? '' : 's'} to ${rc.model}` },
     ];
     const allOk = !offline && att.rows.every((r) => r.ok) && calls.every((c) => c.ok) && structure.every((r) => r.ok);
-    return { ok: allOk, unreachable: att.rows.some((r) => !r.ok && r.unreachable), offline, att, calls, structure, tests: [], regressions: [], safe: null, reply: o.reply, sensitive, signed: { changes: [], kept: [] }, tokens: { original: null, optimized: null, savedPerCall: 0 } };
+    return { ok: allOk, unreachable: att.rows.some((r) => !r.ok && r.unreachable), offline, att, code, calls, structure, tests: [], regressions: [], safe: null, reply: o.reply, sensitive, signed: { changes: [], kept: [] }, tokens: { original: null, optimized: null, savedPerCall: 0 } };
   }
 
   // Structure: one optimiser call, then exactly one original and one optimised call per test, each
@@ -417,7 +538,7 @@ export async function verifyReceipt(rc, deps, { offline = false } = {}) {
   const allOk = !offline && att.rows.every((r) => r.ok) && calls.every((c) => c.ok) && structure.every((r) => r.ok);
   const unreachable = att.rows.some((r) => !r.ok && r.unreachable);
   return {
-    ok: allOk, unreachable, offline, att, calls, structure, tests: results, regressions, safe: allOk && regressions.length === 0 && results.every((t) => t.optimized?.pass),
+    ok: allOk, unreachable, offline, att, code, calls, structure, tests: results, regressions, safe: allOk && regressions.length === 0 && results.every((t) => t.optimized?.pass),
     signed: { changes: Array.isArray(signed.changes) ? signed.changes : [], kept: Array.isArray(signed.kept) ? signed.kept : [] },
     tokens: { original: results[0]?.original?.tokens ?? null, optimized: results[0]?.optimized?.tokens ?? null, savedPerCall: saved.length ? Math.round(saved.reduce((a, b) => a + b, 0) / saved.length) : 0 },
   };

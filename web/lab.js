@@ -1,7 +1,7 @@
 /* Private Prompt Lab page. All checks live in engine.js, shared with the Node verifier.
    Imports carry the release tag so a deploy never mixes a cached old module with new ones. */
-import { runLab, runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=12';
-import { SAMPLE_PROMPT, SAMPLE_TESTS, SAMPLE_ASK } from './sample.js?v=12';
+import { runLab, runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=13';
+import { SAMPLE_PROMPT, SAMPLE_TESTS, SAMPLE_ASK } from './sample.js?v=13';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -375,6 +375,37 @@ $('go-try').addEventListener('click', () => showTab('run'));
 
 /* Results */
 let current = null;
+/* What code is running: hardware quote, measured compose file, signed deploy log, public deploy file, engine image, gateway. */
+const short = (h, n = 12) => { const t = String(h || ''); const at = t.indexOf('@sha256:'); return at >= 0 ? `${t.slice(0, at)}@sha256:${t.slice(at + 8, at + 8 + n)}` : t; };
+const day = (t) => (t ? new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '');
+const ghLink = (url, label) => `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(label)}</a>`;
+function renderCode(code, rc) {
+  const card = $('code-card');
+  if (!code) { card.hidden = true; return; }
+  const { compose: c, deploy: d, gateway: g } = code;
+  const src = d.source;
+  const pending = (x) => x === null || x === undefined;
+  const intelTxt = (x) => (pending(x) ? 'Intel not asked (offline)' : x ? 'Intel verifies it' : 'Intel did not verify it');
+  const links = [
+    { ok: c.ok, title: 'The enclave booted this compose file', body: c.ok ? `${esc(c.name)}: its sha256 is in the hardware quote twice (MRCONFIGID and the RTMR3 event log). It pins ${c.images.map((i) => `<code>${esc(short(i))}</code>`).join(', ')}.` : 'The compose file does not match the quote.' },
+    { ok: d.ok && d.intel !== false, title: 'NEAR AI\'s deploy log, signed by the same chip', body: d.present ? `${d.entries} deploy actions. Their hash and this run's nonce are in a second TDX quote from the same VM (same MRTD and RTMRs). ${intelTxt(d.intel)}.` : 'No deploy log in this proof.' },
+  ];
+  if (d.containers?.length || src) {
+    const ct = d.containers?.[0] || {};
+    const svc = src?.service || ct.service;
+    links.push({ ok: !!src?.ok, title: 'The model container, from a public file', body: src ? `${svc ? `<code>${esc(svc)}</code>, ` : ''}deployed ${esc(day(ct.at))} from ${ghLink(src.url || `https://github.com/nearai/cvm-compose-files/blob/${ct.commit}/${ct.file}`, `${ct.file} at ${String(ct.commit).slice(0, 7)}`)}. ${src.ok ? 'The file on GitHub hashes to the sha256 in the signed log.' : esc(src.error || 'The GitHub file does not match the signed log.')}` : 'Not fetched (offline).' });
+    if (src?.image) {
+      const pinned = /@sha256:[0-9a-f]{64}/.test(src.image) || src.built;
+      links.push({ ok: pinned, mid: !pinned, title: 'The inference engine and weights', body: `Engine <code>${esc(short(src.image))}</code>${/@sha256:/.test(src.image) ? ', pinned by digest' : src.built ? ', built in the enclave from that file' : ', not pinned by digest'}.${src.weights ? ` Weights ${src.revision ? ghLink(`https://huggingface.co/${src.weights}/tree/${src.revision}`, `${src.weights} at ${src.revision.slice(0, 7)}`) : esc(src.weights)}, as labelled in that file.` : ''}` });
+    }
+  }
+  links.push({ ok: g.ok && g.intel !== false, title: 'NEAR AI\'s gateway runs in its own enclave', body: g.present ? `The gateway that relays your ciphertext: ${g.compose.images.filter((i) => /cloud-api/.test(i)).map((i) => `<code>${esc(short(i))}</code>`).join('') || esc(g.compose.name)}. Its quote names its key and this run's nonce, and its compose file matches. ${intelTxt(g.intel)}.` : 'No gateway proof in this run.' });
+  const okN = links.filter((l) => l.ok).length;
+  $('code-sum').className = `pill ${okN === links.length ? 'ok' : 'bad'}`;
+  $('code-sum').textContent = `${okN} of ${links.length} linked`;
+  $('code-chain').innerHTML = links.map((l) => `<li class="${l.ok ? 'ok' : l.mid ? 'mid' : 'bad'}"><b>${esc(l.title)}</b><div>${l.body}</div></li>`).join('');
+  card.hidden = false;
+}
 const pill = (ok, yes = 'Pass', no = 'Fail') => `<span class="pill ${ok ? 'ok' : 'bad'}">${ok ? yes : no}</span>`;
 function render(rc, v, note) {
   current = { rc, v, note };
@@ -405,6 +436,7 @@ function render(rc, v, note) {
   const rows = [...v.att.rows, ...v.structure];
   $('proof').innerHTML = rows.map((r) => `<li>${pill(r.ok)}<div>${esc(r.label)}<div class="why">${esc(r.detail)}</div></div></li>`).join('');
   $('sigs-t').tBodies[0].innerHTML = v.calls.map((c) => `<tr><td>${esc(c.role.replace(/^test-(\d+)-/, (_, n) => `Test ${Number(n) + 1}, `))}</td><td>${pill(c.hashesOk, 'Yes', 'No')}</td><td class="mono-addr">${esc(c.recovered || 'none')}${c.kind ? ` <span class="hint">${esc(c.kind)}</span>` : ''}</td><td>${pill(c.ok)}</td></tr>`).join('');
+  renderCode(v.code, rc);
   $('compose').textContent = v.att.composeHash ? `Enclave app ${v.att.appId}, compose hash ${v.att.composeHash}, key ${v.att.signer}.` : '';
 
   $('reply-card').hidden = rc.kind !== 'ask';

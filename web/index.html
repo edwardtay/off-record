@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloud-api.near.ai https://nras.attestation.nvidia.com https://data.prompt20.com; form-action 'none'; base-uri 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloud-api.near.ai https://nras.attestation.nvidia.com https://raw.githubusercontent.com https://data.prompt20.com; form-action 'none'; base-uri 'self'">
 <title>Private Prompt Lab: verifiable private AI in a TEE | Prompt20</title>
 <meta name="description" content="Shorten a system prompt inside a sealed GPU enclave on NEAR AI Cloud, test it on your own cases, and check the Intel TDX and NVIDIA proof in your browser.">
 <link rel="canonical" href="https://prompt20.com/tools/private-prompt/"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -8,10 +8,10 @@
 <meta name="author" content="Edward Tay">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=11">
 <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Prompt20","item":"https://prompt20.com/"},{"@type":"ListItem","position":2,"name":"Tools","item":"https://prompt20.com/tools/"},{"@type":"ListItem","position":3,"name":"Private Prompt Lab","item":"https://prompt20.com/tools/private-prompt/"}]},{"@type":"WebApplication","name":"Private Prompt Lab","url":"https://prompt20.com/tools/private-prompt/","applicationCategory":"DeveloperApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Send a sensitive prompt to an AI model in a NEAR AI Cloud TEE, encrypted in the browser to the key in its Intel TDX quote, and verify the TDX quote, NVIDIA GPU attestation and every signed reply in the browser.","author":{"@type":"Person","name":"Edward Tay"}}]}</script>
 <script src="/tools/models-data.js" defer></script>
-<script type="module" src="lab.js?v=12"></script>
+<script type="module" src="lab.js?v=13"></script>
 </head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
 <symbol id="i-lab" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><path d="M8.5 15.5h2M12 15.5h3.5M8.5 18h5"/></symbol>
@@ -25,6 +25,7 @@
 <symbol id="i-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></symbol>
 <symbol id="i-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17.5v.3"/></symbol>
 <symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4.5v15l12-7.5z"/></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5"/><path d="M3 16.5l9 4.5 9-4.5"/></symbol>
 <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></symbol>
 </svg>
 <header class="site-header"><div class="site-brand">
@@ -180,6 +181,13 @@
 </section>
 
 <div class="pl">
+<section class="card fold" id="code-card" aria-labelledby="code-title" hidden>
+  <details><summary><h2 id="code-title"><svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg>What code is running</h2><span id="code-sum" class="pill"></span></summary>
+  <p class="hint">From the chip's hardware proof down to the inference engine, each link checked here.</p>
+  <ol id="code-chain" class="chain"></ol>
+  </details>
+</section>
+
 <section class="card fold trust" aria-labelledby="trust-title">
   <details><summary><h2 id="trust-title"><svg class="ic" aria-hidden="true"><use href="#i-help"/></svg>What this does not protect</h2></summary>
   <ul class="plain">
@@ -187,6 +195,7 @@
     <li>You trust this page's code and NEAR AI's key handling. Attestation proves what ran, not that nothing is logged.</li>
     <li>Intel's verdict comes via Phala's verifier and prompt20.com. NVIDIA's is checked here.</li>
     <li>CPU and GPU proofs are linked only by the shared nonce.</li>
+    <li>Model weights are named by a label in NEAR AI's deploy file. The engine is pinned; the weights are not measured.</li>
     <li>One key covers all copies of a model, not one machine.</li>
     <li>A downloaded receipt can unlock its messages. Sharing it shares the prompt.</li>
   </ul>
