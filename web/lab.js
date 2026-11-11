@@ -1,7 +1,7 @@
 /* Private Prompt Lab page. All checks live in engine.js, shared with the Node verifier.
    Imports carry the release tag so a deploy never mixes a cached old module with new ones. */
-import { runLab, runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=11';
-import { SAMPLE_PROMPT, SAMPLE_TESTS, SAMPLE_ASK } from './sample.js?v=11';
+import { runLab, runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=12';
+import { SAMPLE_PROMPT, SAMPLE_TESTS, SAMPLE_ASK } from './sample.js?v=12';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -258,13 +258,15 @@ function lensData(rc, v) {
   try { body = JSON.stringify(JSON.parse(call.request), null, 1); } catch { /* keep raw */ }
   const reply = rc.kind === 'ask' ? v.reply : '';
   const key = String(v.att.signer || '').slice(0, 12);
+  const marks = v.sensitive || [];
   return {
-    browser: { title: 'What your browser sees', text: plain, note: 'Readable only here and inside the chip.' },
+    browser: { title: 'What your browser sees', text: plain, marks, note: marks.length ? `Readable only here and inside the chip. Highlighted: the ${marks.length} sensitive items the chip found.` : 'Readable only here and inside the chip.' },
     gateway: { title: "What NEAR AI's gateway sees", text: body, hex: true, note: 'The exact request it received. Your words are gibberish; the model name, size, timing, IP and API key are not.' },
-    enclave: { title: 'What the secure chip sees', text: plain + (reply ? `\n\n[its reply, locked back to your browser]\n${reply.slice(0, 600)}${reply.length > 600 ? ' ...' : ''}` : ''), note: `Unlocked inside the chip with key ${key}..., the one in its hardware proof.` },
+    enclave: { title: 'What the secure chip sees', marks, text: plain + (reply ? `\n\n[its reply, locked back to your browser]\n${reply.slice(0, 600)}${reply.length > 600 ? ' ...' : ''}` : ''), note: `Unlocked inside the chip with key ${key}..., the one in its hardware proof.` },
     prompt20: { title: 'What prompt20.com sees', text: '', note: 'Nothing from this page. Your message and key go only to NEAR AI; prompt20.com receives only the public hardware proof.' },
   };
 }
+const markSens = (html, items) => { let out = html; for (const it of items || []) { const e = esc(it.text); out = out.split(e).join(`<mark class="sens" title="${esc(it.type)}">${e}</mark>`); } return out; };
 const escHex = (t) => esc(t).replace(/(&quot;content&quot;: &quot;)([0-9a-f]{40,})(&quot;)/g, (_, a, h, c) => `${a}<span class="hex">${h}</span>${c}`);
 async function showLens(p, animate = true) {
   const d = lens[p]; if (!d) return;
@@ -286,7 +288,7 @@ async function showLens(p, animate = true) {
     }
   }
   if (run !== lensRun) return;
-  if (d.hex) box.innerHTML = escHex(target); else if (d.plainHit) box.innerHTML = esc(target).replace(/(&quot;content&quot;: &quot;)(.*?)(&quot;(?:\n|$))/g, (_, a, t, c) => `${a}<span class="leak">${t}</span>${c}`); else box.textContent = target;
+  if (d.marks && !d.hex && !d.plainHit) box.innerHTML = markSens(esc(target), d.marks); else if (d.hex) box.innerHTML = escHex(target); else if (d.plainHit) box.innerHTML = esc(target).replace(/(&quot;content&quot;: &quot;)(.*?)(&quot;(?:\n|$))/g, (_, a, t, c) => `${a}<span class="leak">${markSens(t, d.marks)}</span>${c}`); else box.textContent = target;
   lensText = target;
 }
 async function playFlow() {
@@ -330,6 +332,20 @@ function leakCount(plain, wireText) {
   return leaked;
 }
 const openCallOk = (c) => current?.v?.structure?.find((r) => r.id === 'e2ee')?.ok === true;
+/* This run's cost in NEAR AI credits, from its real token usage and NEAR AI's published prices. */
+let pricing = null;
+async function costLine(rc) {
+  const el = $('cost-line'); el.hidden = true;
+  try {
+    pricing = pricing || Object.fromEntries((await (await fetch(`${NEARAI}/models`)).json()).data.map((m) => [m.id, m.pricing]));
+    const pr = pricing[rc.model]; if (!pr) return;
+    let usd = 0;
+    for (const c of rc.calls) { const u = JSON.parse(c.response).usage || {}; usd += ((u.prompt_tokens || 0) * pr.input + (u.completion_tokens || 0) * pr.output) / 1e6; }
+    if (current?.rc !== rc) return;
+    el.hidden = false;
+    el.innerHTML = `This run cost <b>$${usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2)}</b> in NEAR AI credits (${rc.calls.length} call${rc.calls.length === 1 ? '' : 's'}). You can pay with <a href="https://docs.near.ai/cloud/staking-for-inference/overview" target="_blank" rel="noopener">NEAR staking rewards</a>: your stake stays yours.`;
+  } catch { /* prices unavailable */ }
+}
 function meter(rc) {
   const call = rc.calls[0];
   const msgs = rc.kind === 'ask' ? [rc.system, rc.message].filter(Boolean) : [rc.original];
@@ -344,7 +360,14 @@ function meter(rc) {
   $('m-lab').style.width = `${Math.max(0.5, (labLeak / n) * 100)}%`; $('m-api').style.width = `${(apiLeak / n) * 100}%`;
   $('mv-lab').textContent = `${fmt(labLeak)} of ${fmt(n)} characters`;
   $('mv-api').textContent = `${fmt(apiLeak)} of ${fmt(n)} characters`;
-  $('m-note').textContent = 'Message text the receiving service can read. This lab: measured on this run\'s real request. Standard API: the same message in the usual request format, for illustration. Metadata (model, sizes, timing, IP, API key) is visible in both.';
+  const items = current?.v?.sensitive;
+  $('sens-row').hidden = !items || !items.length;
+  if (items && items.length) {
+    const byType = {}; for (const it of items) byType[it.type] = (byType[it.type] || 0) + 1;
+    const lab = labLeak === 0 ? 0 : items.filter((it) => readable(call.request).includes(it.text)).length;
+    $('sens-chips').innerHTML = `<b class="okc">${lab} of ${items.length}</b> readable here, <b class="badc">${items.length} of ${items.length}</b> in a standard API: ` + Object.entries(byType).map(([t, n]) => `<span class="chip">${esc(t)}${n > 1 ? ` x${n}` : ''}</span>`).join('');
+  }
+  $('m-note').textContent = 'What the receiving service can read. This lab: measured on the real request. Standard API: the same message in the usual format (illustration). Metadata is visible in both.';
   return normal;
 }
 $('replay-flow').addEventListener('click', playFlow);
@@ -363,11 +386,12 @@ function render(rc, v, note) {
   gate(gateFrom(v), v.ok ? 'All six checks passed.' : 'A check failed. Details below.', true);
   labLens = lensData(rc, v);
   const normal = meter(rc);
+  costLine(rc);
   const plainAll = labLens.browser.text;
   let normalPretty = normal; try { normalPretty = JSON.stringify(JSON.parse(normal), null, 1); } catch { /* raw */ }
   apiLens = {
     browser: { title: 'What your browser sees', text: plainAll, note: 'Same as here.' },
-    gateway: { title: 'What a standard AI API receives', text: normalPretty, plainHit: true, note: 'TLS protects it on the way, then the provider reads every word.' },
+    gateway: { title: 'What a standard AI API receives', text: normalPretty, plainHit: true, marks: v.sensitive || [], note: 'TLS protects it on the way, then the provider reads every word.' },
     enclave: { title: "What the provider's servers see", text: plainAll, note: 'Plaintext, kept under the provider\'s retention policy. You cannot check what happens to it.' },
     prompt20: { title: 'What other tools see', text: plainAll, note: 'Web tools that call an AI for you usually see your text too.' },
   };

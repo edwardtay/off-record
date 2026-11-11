@@ -37,6 +37,26 @@ The page runs four attacks against the real checks. Each is refused, and the gat
 | Replay an old proof: offer the quote against a new challenge | The fresh nonce |
 | Send to Claude (not private): a model NEAR AI runs at an outside provider | Stopped before sending: NEAR AI reports no TEE for it |
 
+## Sensitive items, found inside the enclave
+
+When you ask privately, a second encrypted, signed call asks the enclave model to list the sensitive items in your message (names, ages, health data, medications, IDs and so on). The page keeps only items that appear verbatim in the message, highlights them in every view, and counts them on the meter: for the sample, **0 of 7 readable here, 7 of 7 in a standard API** (a name, an age, four lab values, a medication).
+
+We did not use NEAR AI's `/v1/privacy/classify` endpoint for this, though it runs `openai/privacy-filter` in a TEE: it does not accept E2EE (we sent an encrypted input and it scanned the ciphertext), so a live message would reach the gateway in plaintext.
+
+## Paid with NEAR staking
+
+Each run shows its cost in NEAR AI credits, from the real token usage and NEAR AI's published model prices (the sample question cost $0.0024 for 2 calls). NEAR AI's [Staking for Inference](https://docs.near.ai/cloud/staking-for-inference/overview) lets NEAR staking rewards pay those credits while the stake stays yours.
+
+## Findings for the NEAR AI team
+
+Things we hit while building, in case they help:
+
+1. **The PII endpoint has no E2EE.** `/v1/privacy/classify` with `x-encryption-version: 2` treats the ciphertext as the input, so private apps cannot use it on sensitive text without the gateway reading it.
+2. **47 of 63 models are external.** Only 12 run in their own TEE (on 2026-11-11). The attestation error says so, but `/v1/models` does not, so a client must probe each model to know.
+3. **One key covers every instance of a model.** A signature identifies the deployment, not the machine that served the request.
+4. **The verifiers block browsers.** Phala's DCAP verifier and NVIDIA NRAS send no CORS headers, so a browser verifier needs a pass-through for the Intel and GPU checks. NRAS also rejects any request carrying an `Origin` header. NVIDIA's JWKS is open, so the GPU token signatures can be checked in the browser.
+5. **The staking farm configuration needs a NEAR login session.** `/v1/staking/farm/config` rejects API keys, so a tool cannot show a live staking quote without the user signing in.
+
 ## Two things to do with it
 
 **Ask privately.** Send any sensitive message. The recorded sample is a fictional patient's lab results.

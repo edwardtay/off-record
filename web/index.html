@@ -8,10 +8,10 @@
 <meta name="author" content="Edward Tay">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=10">
 <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Prompt20","item":"https://prompt20.com/"},{"@type":"ListItem","position":2,"name":"Tools","item":"https://prompt20.com/tools/"},{"@type":"ListItem","position":3,"name":"Private Prompt Lab","item":"https://prompt20.com/tools/private-prompt/"}]},{"@type":"WebApplication","name":"Private Prompt Lab","url":"https://prompt20.com/tools/private-prompt/","applicationCategory":"DeveloperApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Send a sensitive prompt to an AI model in a NEAR AI Cloud TEE, encrypted in the browser to the key in its Intel TDX quote, and verify the TDX quote, NVIDIA GPU attestation and every signed reply in the browser.","author":{"@type":"Person","name":"Edward Tay"}}]}</script>
 <script src="/tools/models-data.js" defer></script>
-<script type="module" src="lab.js?v=11"></script>
+<script type="module" src="lab.js?v=12"></script>
 </head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
 <symbol id="i-lab" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><path d="M8.5 15.5h2M12 15.5h3.5M8.5 18h5"/></symbol>
@@ -141,7 +141,9 @@
       <div class="meter" id="meter">
         <div class="mrow"><span class="ml">This lab</span><span class="mbar"><i id="m-lab"></i></span><span class="mv" id="mv-lab"></span></div>
         <div class="mrow"><span class="ml">Standard API</span><span class="mbar bad"><i id="m-api"></i></span><span class="mv" id="mv-api"></span></div>
+        <div class="sens-row" id="sens-row" hidden><span class="ml">Sensitive items</span><span id="sens-chips" class="chips"></span></div>
         <p class="hint" id="m-note"></p>
+        <p class="hint cost" id="cost-line" hidden></p>
       </div>
       <div class="flow" id="flow" role="group" aria-label="See what each party sees">
         <button type="button" class="node see" data-p="browser" aria-pressed="true"><b>Your browser</b><span class="nv">Plaintext</span></button>

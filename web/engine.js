@@ -34,6 +34,24 @@ const OPTIMIZER_EXTREME = [
   'You edit system prompts for production AI apps. Hard budget: the new prompt must be 40 words or fewer.',
   'Fit the budget whatever it takes: merge, compress and drop the rules you judge least important.',
 ];
+const SCAN_SYSTEM = [
+  'Find every sensitive item in the user\'s text: person names, ages, dates of birth, contact details, addresses, ID or account numbers, health data (conditions, test results, measurements), medications, financial details, employer or school names.',
+  'Copy each item exactly as it appears, the shortest span that is sensitive. Do not add items that are not in the text.',
+  'Reply with JSON only, no code fence: {"items": [{"text": "<exact span>", "type": "name|age|date|contact|id|health|medication|financial|organisation|other"}]}',
+].join('\n');
+
+/** Sensitive items from the enclave's scan, kept only if each appears verbatim in the message. */
+export function parseScan(text, message) {
+  const s = String(text).replace(/```(json)?/g, ''); const a = s.indexOf('{'); const b = s.lastIndexOf('}');
+  if (a < 0 || b <= a) return [];
+  try {
+    const items = JSON.parse(s.slice(a, b + 1)).items || [];
+    const seen = new Set();
+    return items.filter((it) => it && typeof it.text === 'string' && it.text.trim().length > 1 && message.includes(it.text.trim()) && !seen.has(it.text.trim()) && seen.add(it.text.trim()))
+      .map((it) => ({ text: it.text.trim(), type: String(it.type || 'other').toLowerCase() }));
+  } catch { return []; }
+}
+
 export const MODES = { careful: 'Careful', aggressive: 'Aggressive', extreme: 'Extreme (40 words)' };
 const optimizerSystem = (mode) => [...({ aggressive: OPTIMIZER_AGGRESSIVE, extreme: OPTIMIZER_EXTREME }[mode] || OPTIMIZER_BASE), ...OPTIMIZER_FORMAT].join('\n');
 
@@ -326,8 +344,12 @@ export async function runAsk({ key, model = DEFAULT_MODEL, system = '', message,
   if (!att.ed) throw new Error('NEAR AI did not return an Ed25519 key for this model, so the message cannot be encrypted to it. Nothing was sent.');
   onStep('optimize', 'Sending your message, encrypted to the enclave key');
   const messages = [...(system.trim() ? [{ role: 'system', content: system }] : []), { role: 'user', content: message }];
-  const call = await chat({ key, model, modelPub: att.signer, maxTokens: 3000, messages }, deps);
-  return { version: RECEIPT_VERSION, kind: 'ask', tool: 'https://prompt20.com/tools/private-prompt/', created: new Date().toISOString(), model, nonce, attestation: report, system, message, calls: [{ ...call, role: 'ask' }] };
+  // Two encrypted calls in parallel: the answer, and a scan that lists the sensitive items in the message.
+  const [call, scan] = await Promise.all([
+    chat({ key, model, modelPub: att.signer, maxTokens: 3000, messages }, deps),
+    chat({ key, model, modelPub: att.signer, maxTokens: 2000, messages: [{ role: 'system', content: SCAN_SYSTEM }, { role: 'user', content: message }] }, deps),
+  ]);
+  return { version: RECEIPT_VERSION, kind: 'ask', tool: 'https://prompt20.com/tools/private-prompt/', created: new Date().toISOString(), model, nonce, attestation: report, system, message, calls: [{ ...call, role: 'ask' }, { ...scan, role: 'scan' }] };
 }
 
 /**
@@ -343,16 +365,22 @@ export async function verifyReceipt(rc, deps, { offline = false } = {}) {
   const calls = await Promise.all(rc.calls.map(async (c) => ({ role: c.role, id: c.id, ...(await checkCall(c, att.signer, deps)) })));
 
   if (rc.kind === 'ask') {
-    const call = rc.calls.length === 1 && rc.calls[0].role === 'ask' ? rc.calls[0] : null;
+    const roles = rc.calls.map((c) => c.role);
+    const shapeOk = roles[0] === 'ask' && (roles.length === 1 || (roles.length === 2 && roles[1] === 'scan'));
+    const call = shapeOk ? rc.calls[0] : null;
     const o = call ? openCall(call, att.signer) : { messages: [] };
     const want = [...(String(rc.system || '').trim() ? [rc.system] : []), rc.message];
-    const sentOk = !!call && o.model === rc.model && o.messages.length === want.length && o.messages.every((m, i) => m.content === want[i]);
+    const scanCall = shapeOk && roles[1] === 'scan' ? rc.calls[1] : null;
+    const so = scanCall ? openCall(scanCall, att.signer) : null;
+    const scanOk = !scanCall || (so.e2ee && so.model === rc.model && so.messages.length === 2 && so.messages[1].content === rc.message);
+    const sentOk = !!call && o.model === rc.model && o.messages.length === want.length && o.messages.every((m, i) => m.content === want[i]) && scanOk;
+    const sensitive = so && scanOk ? parseScan(so.reply, rc.message) : null;
     const structure = [
-      { id: 'e2ee', label: 'The message was encrypted to the attested key', ok: !!o.e2ee, detail: 'opens only with the key in the quote; the reply only with this run\'s one-time key' },
-      { id: 'ask', label: 'The message and reply shown are the ones signed', ok: sentOk, detail: `1 signed call to ${rc.model}` },
+      { id: 'e2ee', label: 'The message was encrypted to the attested key', ok: !!o.e2ee && (!so || so.e2ee), detail: 'every call opens only with the key in the quote; replies only with this run\'s one-time key' },
+      { id: 'ask', label: 'The message, reply and sensitive-item scan shown are the ones signed', ok: sentOk, detail: `${rc.calls.length} signed call${rc.calls.length === 1 ? '' : 's'} to ${rc.model}` },
     ];
     const allOk = !offline && att.rows.every((r) => r.ok) && calls.every((c) => c.ok) && structure.every((r) => r.ok);
-    return { ok: allOk, unreachable: att.rows.some((r) => !r.ok && r.unreachable), offline, att, calls, structure, tests: [], regressions: [], safe: null, reply: o.reply, signed: { changes: [], kept: [] }, tokens: { original: null, optimized: null, savedPerCall: 0 } };
+    return { ok: allOk, unreachable: att.rows.some((r) => !r.ok && r.unreachable), offline, att, calls, structure, tests: [], regressions: [], safe: null, reply: o.reply, sensitive, signed: { changes: [], kept: [] }, tokens: { original: null, optimized: null, savedPerCall: 0 } };
   }
 
   // Structure: one optimiser call, then exactly one original and one optimised call per test, each
