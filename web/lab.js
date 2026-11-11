@@ -231,7 +231,7 @@ const STARTERS = [
 ];
 function renderStarters() {
   const show = !!chat && !chat.demo && !chat.rc?.turns?.length && !chat.pending;
-  $('starters').hidden = !show;
+  $('starters').hidden = !show; $('samples').hidden = !show;
   if (!show) return;
   $('starters').innerHTML = STARTERS.map((s, i) => `<button type="button" class="chip starter" data-st="${i}" aria-pressed="${$('system').value === s.system}">${esc(s.label)}</button>`).join('');
 }
@@ -241,6 +241,25 @@ $('starters').addEventListener('click', (e) => {
   $('system').value = $('system').value === s.system ? '' : s.system;
   $('msg').placeholder = $('system').value ? s.hint : 'Message the enclave';
   renderStarters(); $('msg').focus();
+});
+
+/* Fictional sample files, so anyone can try an attachment without real data. */
+const SAMPLES = {
+  lab: { file: 'samples/lab-report.pdf', starter: 0, ask: 'Here are my latest blood test results. What stands out, and what should I ask my doctor?' },
+  bank: { file: 'samples/bank-statement.pdf', starter: 2, ask: 'Here is my bank statement for October. Sort my spending into categories and flag anything unusual.' },
+};
+$('samples').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-sample]'); if (!b) return;
+  const s = SAMPLES[b.dataset.sample]; const name = s.file.split('/').pop();
+  try {
+    if (!attachments.some((a) => a.name === name)) {
+      const blob = await (await timedFetch(s.file)).blob();
+      attachments.push({ name, text: await pdfText(new File([blob], name, { type: 'application/pdf' })), cut: false });
+      renderAttachments();
+    }
+    const st = STARTERS[s.starter]; $('system').value = st.system;
+    $('msg').value = s.ask; grow(); renderStarters(); $('msg').focus();
+  } catch (err) { fail(`Could not load the sample: ${err.message}`); }
 });
 
 /* Saved chats: IndexedDB in this browser. Each record is the full receipt. */

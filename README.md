@@ -8,12 +8,33 @@ A private AI chat with proof on every reply. Before your first message leaves, t
 
 **Live:** https://prompt20.com/tools/off-record/
 
+## Try it (no key, no sign-up)
+
+1. Open https://prompt20.com/tools/off-record/. The recorded demo chat re-checks itself live; the **Verified** pill at the top turns green.
+2. Click **Verified** (or **How do I know?** under the message box). The proof panel opens with three plain answers: only a sealed chip can read it, it was scrambled before it left the device, and the reply really came from the chip. Each is green because its checks passed.
+3. In the panel, click each box under **Who can read your messages?**: your browser and the enclave show plaintext; NEAR AI's gateway shows the real request it got, which is ciphertext; **A standard AI API** shows the same message readable.
+4. Press each **Try to break it** button. Every one is refused, and the panel names the check that caught it.
+5. Click **New chat**, then **lab report** or **bank statement** under "No file handy?". A fictional PDF ([`web/samples/`](web/samples/)) is read in the page and attached with a question. Press send. No key is needed: the free demo allows 20 messages a day. The reply streams in and gets its own **Verified** badge.
+6. Reload the page. The chat is in the sidebar, saved only in this browser, and is checked again when opened.
+
+**Your own key:** paste a NEAR AI key ([cloud.near.ai](https://cloud.near.ai), $10 free credits at [nearbuilders.org/join](https://nearbuilders.org/join)) under **Key and model**. With a key, the page talks to NEAR AI directly and prompt20.com is off the path.
+
+**Which models are private:** **Which models are private** in the sidebar asks NEAR AI for every model's attestation, live, with no key. On 2026-11-11, 12 of 63 models ran in their own TEE, 4 went through an attested router, and 47 (the Anthropic, OpenAI, Google and xAI models among them) were passed to outside providers. NEAR AI's API says so itself: "TEE attestation is not supported for external providers." Off Record only offers models with their own TEE.
+
+## What the server keeps
+
+Nothing from a message. The page is static files; chats are stored only in the browser (IndexedDB).
+
+- **The free demo relay** ([`nginx/off-record-relay.js`](nginx/off-record-relay.js), locations in [`nginx/off-record.conf`](nginx/off-record.conf)) adds the demo key and passes the encrypted request on. It refuses anything unencrypted, writes no access log, and passes on only the headers the call needs, so NEAR AI sees prompt20.com's address in place of the visitor's. Its daily counter is keyed by a keyed hash of IP and date, never the IP, and expires within two days. The rate limiter holds IPs in memory for about a minute.
+- **The evidence pass-through** (`/intel/*`, `/verify/gpu`) carries only public hardware evidence to Intel and NVIDIA, which send no CORS headers.
+- Cloudflare sits in front of prompt20.com and sees the visitor's IP, as for any Cloudflare site. It sees the same ciphertext.
+
 ## Who can read your messages
 
 | Party | Sees | Why |
 |---|---|---|
 | Your browser | Plaintext | You type it. It is encrypted here, only after the enclave checks pass. |
-| prompt20.com | Nothing | The page sends your message and key only to NEAR AI. prompt20.com relays only public evidence: Intel's signed collateral and the GPU evidence for NVIDIA. The page loads no analytics. |
+| prompt20.com | Nothing, or ciphertext on the free demo | With your own key, the page sends your message and key only to NEAR AI. On the free demo, prompt20.com relays the same ciphertext the gateway sees and adds the demo key. It also relays public evidence: Intel's signed collateral and the GPU evidence for NVIDIA. The page loads no analytics. |
 | NEAR AI's gateway | Ciphertext and metadata | Each message is encrypted to the enclave key. The gateway still sees the model, sizes, timing and your API key. |
 | The enclave | Plaintext | Only the holder of the key named in the hardware quote, with this run's nonce, can decrypt. |
 
@@ -66,7 +87,7 @@ We did not use NEAR AI's `/v1/privacy/classify` endpoint for this, though it run
 
 ## Paid with NEAR staking
 
-Each run shows its cost in NEAR AI credits, from the real token usage and NEAR AI's published model prices (the sample question cost $0.0024 for 2 calls). NEAR AI's [Staking for Inference](https://docs.near.ai/cloud/staking-for-inference/overview) lets NEAR staking rewards pay those credits while the stake stays yours.
+This is where NEAR fits beyond the enclaves: private inference runs on NEAR AI Cloud, and its credits can be paid by NEAR staking rewards. Each run shows its cost in NEAR AI credits, from the real token usage and NEAR AI's published model prices (the sample question cost $0.0024 for 2 calls). NEAR AI's [Staking for Inference](https://docs.near.ai/cloud/staking-for-inference/overview) lets NEAR staking rewards pay those credits while the stake stays yours.
 
 ## Findings for the NEAR AI team
 
@@ -78,16 +99,6 @@ Things we hit while building, in case they help:
 4. **The verifiers block browsers.** Intel's PCS (collateral) and NVIDIA NRAS send no CORS headers, so a browser verifier needs a pass-through for them. NRAS also rejects any request carrying an `Origin` header. NVIDIA's JWKS is open, so the GPU token signatures can be checked in the browser.
 5. **The staking farm configuration needs a NEAR login session.** `/v1/staking/farm/config` rejects API keys, so a tool cannot show a live staking quote without the user signing in.
 6. **One VM serves many models, and only the deploy log says which container is which.** On 2026-11-11 the Qwen3.8-27B enclave's deploy log listed 48 running services, including several other models. Each model has its own key, but the hardware measurement covers the compose manager, so a verifier must check the deploy log (a second quote) to learn which engine serves a model. Documenting this next to the attestation API would help.
-
-## Try it
-
-**No key needed:** open https://prompt20.com/tools/off-record/. It re-checks a recorded private question as it loads: the six gate steps tick green, then an animation follows the message from your browser (plaintext) through NEAR AI's gateway (the real ciphertext) into the enclave. Click any party to see exactly what it sees. Click a reply's **Verified** badge for its proof, and press the five **Try to break it** buttons. **New private chat** starts your own.
-
-**Free demo:** type and send with no key. The message goes through prompt20.com's demo relay, which adds a demo key (`nginx/off-record-relay.js`). The relay takes only end-to-end encrypted requests to the listed private models, caps replies at 4,000 tokens and allows 20 messages a day per visitor, so it carries the same ciphertext NEAR AI's gateway sees. Attestation is still fetched straight from NEAR AI, and a reply the relay changed would fail its signature.
-
-**Your own key:** get a NEAR AI key at https://cloud.near.ai ($10 free credits at https://nearbuilders.org/join), open **Key and model**, paste the key (kept in memory unless you tick Remember on this device), pick a starter or type, and send. Watch the gate: "Nothing sent yet" until the enclave checks pass.
-
-**Which models are private:** the **Models** tab asks NEAR AI for every model's attestation, live, with no key. On 2026-11-11, 12 of 63 models ran in their own TEE, 4 went through an attested router, and 47 (the Anthropic, OpenAI, Google and xAI models among them) were passed to outside providers. NEAR AI's API says so itself: "TEE attestation is not supported for external providers." The lab only offers models with their own TEE.
 
 ## Run it locally
 
@@ -128,7 +139,7 @@ NEARAI_KEY=sk-... npm run capture   # record a new two-turn chat into web/sample
 
 ## Trust boundaries
 
-- NEAR AI's gateway sees metadata: your IP, timing, message sizes, the model, request settings and your API key.
+- NEAR AI's gateway sees metadata: your IP, timing, message sizes, the model, request settings and your API key. On the free demo it sees prompt20.com's address and the demo key, and prompt20.com sees your IP.
 - You trust the code this page delivers and NEAR AI's key management. Attestation shows what hardware and enclave app ran, not that the app never logs.
 - Instances of one model share a key, so it identifies a deployment, not one machine.
 - A receipt contains the one-time secrets that open its messages, so it reveals the chat to whoever holds it. Saved chats sit in this browser's storage unencrypted, like any web chat's local history; anyone with access to this browser profile can read them. Delete them in the chat list.

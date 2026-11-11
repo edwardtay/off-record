@@ -377,3 +377,5 @@ html body .or .composer textarea, html body .or .composer textarea:focus, html b
 .pp.bad .pp-i::before { content:"✗"; }
 .pp-limit { margin:2px 0 0; font-size:12.5px; line-height:1.5; color:var(--ink); background:#fffbeb; border:2px solid #fcd34d; border-radius:12px; padding:9px 12px; }
 .fine .link { font-size:inherit; font-weight:700; color:var(--accent); background:none; border:0; padding:0; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
+.samples { margin:0 auto 10px; max-width:760px; padding:0 16px; font-size:13px; color:var(--or-soft); text-align:center; }
+.samples .link { font:inherit; font-weight:700; color:var(--accent); background:none; border:0; padding:0; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }

@@ -2,7 +2,12 @@
 // demo key. The relay only accepts end-to-end encrypted requests to the listed private models, caps the
 // reply size, and counts calls per visitor and in total for each UTC day, so the demo credit cannot be
 // spent on other models or drained by one visitor.
+//
+// What it keeps: nothing from a request body, and no IP address. The daily counter is keyed by a
+// keyed hash of the visitor's IP and the date, so it cannot be turned back into an IP, and every entry
+// expires within two days. These locations write no access log (see nginx/off-record.conf).
 import fs from 'fs';
+import crypto from 'crypto';
 
 const MODELS = [
   'Qwen/Qwen3.8-27B', 'Qwen/Qwen3.6-35B-A3B-FP8', 'Qwen/Qwen3-VL-30B-A3B-Instruct',
@@ -27,7 +32,10 @@ function refuse(r, status, message) {
   r.return(status, JSON.stringify({ error: { message, relay: true } }));
 }
 
-function visitor(r) { return r.headersIn['CF-Connecting-IP'] || r.remoteAddress; }
+function visitor(r, day) {
+  const ip = r.headersIn['CF-Connecting-IP'] || r.remoteAddress;
+  return crypto.createHmac('sha256', key).update(`${day}|${ip}`).digest('hex').slice(0, 24);
+}
 
 function chat(r) {
   if (!auth()) return refuse(r, 503, 'The free demo is off right now. Add your own NEAR AI key under Key and model.');
@@ -42,7 +50,7 @@ function chat(r) {
   const day = new Date().toISOString().slice(0, 10);
   const d = ngx.shared.offrecord;
   if (d.incr(`all:${day}`, 1, 0) > PER_DAY) return refuse(r, 429, 'The free demo has used today\'s allowance. Add your own NEAR AI key under Key and model, or come back tomorrow.');
-  if (d.incr(`ip:${visitor(r)}:${day}`, 1, 0) > PER_VISITOR) return refuse(r, 429, 'You have used today\'s free demo messages. Add your own NEAR AI key under Key and model to keep going.');
+  if (d.incr(`v:${visitor(r, day)}`, 1, 0) > PER_VISITOR) return refuse(r, 429, 'You have used today\'s free demo messages. Add your own NEAR AI key under Key and model to keep going.');
   r.internalRedirect('@offrecord_near');
 }
 
