@@ -2,8 +2,8 @@
    encrypted in this page to the key named in the enclave's hardware quote, every reply is signed by
    that key, and every check is shown. All checks live in engine.js, shared with the Node verifier.
    Imports carry the release tag so a deploy never mixes a cached old module with new ones. */
-import { openSession, newReceipt, sendTurn, checkTurns, turnMessages, verifyReceipt, codeChecks, fetchAttestation, privacyKind, newNonce, modelAttestation, callUsage, runAsk, NEARAI, DEFAULT_MODEL } from './engine.js?v=19';
-import { SAMPLE_ASK } from './sample.js?v=19';
+import { openSession, newReceipt, sendTurn, checkTurns, turnMessages, verifyReceipt, codeChecks, fetchAttestation, privacyKind, newNonce, modelAttestation, callUsage, runAsk, NEARAI, DEFAULT_MODEL } from './engine.js?v=20';
+import { SAMPLE_ASK } from './sample.js?v=20';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -37,6 +37,8 @@ const deps = {
   pcsUrl: (kind, arg) => new URL(`intel/${kind}${arg ? `/${arg}` : ''}`, location.href).href,
   gpuUrl: new URL('verify/gpu', location.href).href,
 };
+// Without a key of their own, visitors send through prompt20.com's demo relay, which adds a demo key.
+const relayDeps = { ...deps, api: new URL('near', location.href).href };
 
 /* Views: the chat or the models table in the main pane; the proof in a side panel; settings in a dialog. */
 function showTab(t) {
@@ -68,6 +70,8 @@ if (savedKey) { $('key').value = savedKey; $('remember').checked = true; }
 const syncKey = () => store.set('offrecord.key', $('remember').checked && $('key').value.trim() ? $('key').value.trim() : null);
 $('remember').addEventListener('change', syncKey);
 $('key').addEventListener('input', () => { if ($('remember').checked) syncKey(); });
+const syncFine = () => { $('fine').textContent = $('key').value.trim() ? 'Encrypted to a sealed chip before it leaves. Saved only in this browser.' : 'Free demo, 20 messages a day. Encrypted to a sealed chip before it leaves. Saved only in this browser.'; };
+$('key').addEventListener('input', syncFine); syncFine();
 const savedModel = store.get('offrecord.model');
 $('model').addEventListener('change', () => store.set('offrecord.model', $('model').value));
 
@@ -255,7 +259,7 @@ $('chat-list').addEventListener('click', async (e) => {
   const o = e.target.closest('[data-id]');
   if (o && !sending) { const all = await DB.all(); const c = (all || []).find((x) => x.id === o.dataset.id); if (c) openSaved(c); }
 });
-const saveChat = async () => { if (!chat || chat.demo || !chat.rc?.turns?.length) return; try { await DB.put({ id: chat.id, title: chat.title, updated: new Date().toISOString(), rc: chat.rc }); } catch { /* storage full or blocked */ } renderChatList(); };
+const saveChat = async () => { if (!chat || chat.demo || !chat.rc?.turns?.length) return; try { await DB.put({ id: chat.id, title: chat.title, updated: new Date().toISOString(), rc: chat.rc, relay: !!chat.relay }); } catch { /* storage full or blocked */ } renderChatList(); };
 
 /* The conversation. */
 let chat = null; let sending = null; let opId = 0;
@@ -312,10 +316,10 @@ function startChat() {
 }
 $('new-chat').addEventListener('click', startChat);
 
-async function openReceipt(rc, { id, title, demo = false, note = '' } = {}) {
+async function openReceipt(rc, { id, title, demo = false, relay = false, note = '' } = {}) {
   if (sending) return;
   const op = ++opId;
-  chat = { id: id || `c${Date.now().toString(36)}`, title: title || note || 'Receipt', rc, session: null, view: null, demo };
+  chat = { id: id || `c${Date.now().toString(36)}`, title: title || note || 'Receipt', rc, session: null, view: null, demo, relay };
   current = null; lens = {}; lensText = ''; lensTurn = null;
   $('demo-note').hidden = !demo; showTab('chat');
   $('stage-title').textContent = chat.title; $('stage-sub').textContent = ''; $('verdict').className = 'status'; $('verdict').textContent = 'Checking';
@@ -336,7 +340,7 @@ async function openReceipt(rc, { id, title, demo = false, note = '' } = {}) {
   }
   renderChatList();
 }
-const openSaved = (c) => { showTab('chat'); showView('chat'); openReceipt(c.rc, { id: c.id, title: c.title, note: 'Saved chat, checked again' }); };
+const openSaved = (c) => { showTab('chat'); showView('chat'); openReceipt(c.rc, { id: c.id, title: c.title, relay: !!c.relay, note: 'Saved chat, checked again' }); };
 $('receipt-file').addEventListener('change', async (ev) => {
   const f = ev.target.files[0]; if (!f) return; ev.target.value = '';
   let rc; try { rc = JSON.parse(await f.text()); } catch { fail('That file is not valid JSON.'); return; }
@@ -357,7 +361,7 @@ async function send() {
   const text = $('msg').value.trim();
   if (!text && !attachments.length) return;
   const key = $('key').value.trim();
-  if (!key) { openSettings('Add a NEAR AI key to send. It goes only to NEAR AI.'); return; }
+  const via = key ? deps : relayDeps;
   if (!chat || chat.demo || (chat.rc && chat.rc.model !== $('model').value && !chat.rc.turns.length)) startChat();
   if (chat.rc && chat.rc.model !== $('model').value) { fail(`This chat runs on ${chat.rc.model}. Start a new chat to use ${$('model').value}.`); return; }
   fail('');
@@ -380,7 +384,8 @@ async function send() {
     onStep('send', 'Streaming the reply, encrypted to this page');
     chat.pending.status = 'Waiting for the enclave';
     const replies = chat.view?.replies || [];
-    await sendTurn({ key, session: chat.session, rc: chat.rc, replies, message, signal: sending.signal, onDelta: (d) => { chat.pending.text += d; renderLive(); } }, deps);
+    await sendTurn({ key: key || 'demo', session: chat.session, rc: chat.rc, replies, message, signal: sending.signal, onDelta: (d) => { chat.pending.text += d; renderLive(); } }, via);
+    if (!key) chat.relay = true;
     if (op !== opId) return;
     const last = chat.rc.calls.find((c) => c.role === `turn-${chat.rc.turns.length - 1}`);
     if (last?.stopped) {
@@ -427,10 +432,12 @@ function lensData(rc, v, i = null) {
   const which = n > 1 ? ` (message ${k + 1} of ${n})` : '';
   return {
     browser: { title: `What your browser sees${which}`, text: plain, marks, note: marks.length ? `Readable only here and inside the chip. Highlighted: sensitive items the chip found.` : 'Readable only here and inside the chip.' },
-    gateway: { title: `What NEAR AI's gateway sees${which}`, text: body, hex: true, note: 'The exact request it received, with the whole conversation so far. Your words are gibberish; the model name, size, timing, IP and API key are not.' },
+    gateway: { title: `What NEAR AI's gateway sees${which}`, text: body, hex: true, note: chat?.relay ? 'The exact request it received, with the whole conversation so far. Your words are gibberish; the model name, size and timing are not. It came from prompt20.com\'s demo relay, so it never saw your IP.' : 'The exact request it received, with the whole conversation so far. Your words are gibberish; the model name, size, timing, IP and API key are not.' },
     enclave: { title: `What the secure chip sees${which}`, marks, text: plain + (reply ? `\n\n[its reply, locked back to your browser]\n${reply.slice(0, 800)}${reply.length > 800 ? ' ...' : ''}` : ''), note: `Unlocked inside the chip with key ${key}..., the one in its hardware proof.` },
     api: { title: `What a standard AI API receives${which}`, text: standardRequest(msgs), plainHit: true, marks, note: 'The same conversation sent the usual way. TLS protects it on the way, then the provider reads every word and keeps it under its own retention policy.' },
-    prompt20: { title: 'What prompt20.com sees', text: '', note: 'Nothing from this page. Your messages and key go only to NEAR AI; prompt20.com only relays public evidence (Intel\'s signed collateral, the GPU evidence).' },
+    prompt20: chat?.relay
+      ? { title: `What prompt20.com's demo relay sees${which}`, text: body, hex: true, note: 'This chat used the free demo, so it passed through prompt20.com, which added the demo key. It sees the same ciphertext as NEAR AI\'s gateway, plus your IP. It cannot unlock your words or change a reply without breaking the signature.' }
+      : { title: 'What prompt20.com sees', text: '', note: 'Nothing from this page. Your messages and key go only to NEAR AI; prompt20.com only relays public evidence (Intel\'s signed collateral, the GPU evidence).' },
   };
 }
 const markSens = (html, items) => { let out = html; for (const it of items || []) { const e = esc(it.text); out = out.split(e).join(`<mark class="sens" title="${esc(it.type)}">${e}</mark>`); } return out; };
@@ -558,6 +565,10 @@ function render(v, note) {
   gate(gateFrom(v), v.ok ? `All six checks passed, for ${rc.turns.length === 1 ? 'the message' : `all ${rc.turns.length} messages`}.` : 'A check failed. Details below.', !chat.animated);
   chat.animated = true;
   lens = lensData(rc, v, lensTurn);
+  const p20 = $('flow').querySelector('.node[data-p="prompt20"]');
+  p20.classList.toggle('none', !chat?.relay); p20.classList.toggle('cipher', !!chat?.relay);
+  p20.querySelector('.nv').textContent = chat?.relay ? 'Ciphertext (demo relay)' : 'Not on the path';
+  p20.dataset.tip = chat?.relay ? 'This chat used the free demo, so prompt20.com relayed the ciphertext and added the demo key. It cannot unlock it.' : 'This site is not on the path. Your key and message go straight from your browser to NEAR AI.';
   meter(rc, v);
   costLine(rc);
   if (!$('proof-panel').hidden) playFlow(); else lensText = '';
@@ -651,7 +662,7 @@ $('fresh').addEventListener('click', async () => {
   if (!chat?.rc?.turns?.length || sending) return;
   $('fresh').disabled = true;
   const { session, code } = chat;
-  try { await openReceipt(chat.rc, { id: chat.id, title: chat.title, demo: chat.demo, note: 'Checked again' }); } finally { $('fresh').disabled = false; }
+  try { await openReceipt(chat.rc, { id: chat.id, title: chat.title, demo: chat.demo, relay: chat.relay, note: 'Checked again' }); } finally { $('fresh').disabled = false; }
   if (session) { chat.session = session; chat.code = code; }
 });
 $('download').addEventListener('click', () => {

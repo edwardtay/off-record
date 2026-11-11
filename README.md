@@ -83,7 +83,9 @@ Things we hit while building, in case they help:
 
 **No key needed:** open https://prompt20.com/tools/off-record/. It re-checks a recorded private question as it loads: the six gate steps tick green, then an animation follows the message from your browser (plaintext) through NEAR AI's gateway (the real ciphertext) into the enclave. Click any party to see exactly what it sees. Click a reply's **Verified** badge for its proof, and press the five **Try to break it** buttons. **New private chat** starts your own.
 
-**Your own message:** get a NEAR AI key at https://cloud.near.ai ($10 free credits at https://nearbuilders.org/join), open **Key and model**, paste the key (kept in memory unless you tick Remember on this device), pick a starter or type, and send. Watch the gate: "Nothing sent yet" until the enclave checks pass.
+**Free demo:** type and send with no key. The message goes through prompt20.com's demo relay, which adds a demo key (`nginx/off-record-relay.js`). The relay takes only end-to-end encrypted requests to the listed private models, caps replies at 4,000 tokens and allows 20 messages a day per visitor, so it carries the same ciphertext NEAR AI's gateway sees. Attestation is still fetched straight from NEAR AI, and a reply the relay changed would fail its signature.
+
+**Your own key:** get a NEAR AI key at https://cloud.near.ai ($10 free credits at https://nearbuilders.org/join), open **Key and model**, paste the key (kept in memory unless you tick Remember on this device), pick a starter or type, and send. Watch the gate: "Nothing sent yet" until the enclave checks pass.
 
 **Which models are private:** the **Models** tab asks NEAR AI for every model's attestation, live, with no key. On 2026-11-11, 12 of 63 models ran in their own TEE, 4 went through an attested router, and 47 (the Anthropic, OpenAI, Google and xAI models among them) were passed to outside providers. NEAR AI's API says so itself: "TEE attestation is not supported for external providers." The lab only offers models with their own TEE.
 

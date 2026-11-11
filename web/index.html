@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=15">
 <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Prompt20","item":"https://prompt20.com/"},{"@type":"ListItem","position":2,"name":"Tools","item":"https://prompt20.com/tools/"},{"@type":"ListItem","position":3,"name":"Off Record","item":"https://prompt20.com/tools/off-record/"}]},{"@type":"WebApplication","name":"Off Record","url":"https://prompt20.com/tools/off-record/","applicationCategory":"DeveloperApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Send a sensitive prompt to an AI model in a NEAR AI Cloud TEE, encrypted in the browser to the key in its Intel TDX quote, and verify the TDX quote, NVIDIA GPU attestation and every signed reply in the browser.","author":{"@type":"Person","name":"Edward Tay"}}]}</script>
-<script type="module" src="lab.js?v=19"></script>
+<script type="module" src="lab.js?v=20"></script>
 </head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
 <symbol id="i-lab" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h14a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5h-7l-5 4v-4H5A2.5 2.5 0 0 1 2.5 15V6A2.5 2.5 0 0 1 5 3.5z"/><rect x="8.75" y="9.75" width="6.5" height="4.75" rx="1"/><path d="M10.25 9.75V8.5a1.75 1.75 0 0 1 3.5 0v1.25"/></symbol>
@@ -84,7 +84,7 @@
           <button type="submit" class="send" id="send" aria-label="Send"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg><span id="send-label" class="sr">Send</span></button>
         </div>
       </form>
-      <p class="fine">Encrypted to a sealed chip before it leaves. Saved only in this browser.</p>
+      <p class="fine" id="fine">Free demo, 20 messages a day. Encrypted to a sealed chip before it leaves. Saved only in this browser.</p>
     </div>
 
     <div id="stage-models" class="models" hidden>
@@ -149,6 +149,7 @@
   <details><summary><h2 id="trust-title"><svg class="ic" aria-hidden="true"><use href="#i-help"/></svg>What this does not protect</h2></summary>
   <ul class="plain">
     <li>NEAR AI's gateway sees metadata: your IP, timing, sizes, the model and your API key.</li>
+    <li>The free demo sends through prompt20.com, which adds a demo key. It carries only ciphertext and sees your IP; NEAR AI then sees prompt20.com's address in place of yours.</li>
     <li>You trust this page's code and NEAR AI's key handling. Attestation proves what ran, not that nothing is logged.</li>
     <li>Intel's and NVIDIA's evidence is checked in this page. prompt20.com only relays Intel's signed collateral and NVIDIA's verifier, which send no CORS headers.</li>
     <li>CPU and GPU proofs are linked only by the shared nonce.</li>
@@ -177,8 +178,8 @@
   <form method="dialog">
     <h2 id="settings-h">Key and model</h2>
     <p id="settings-msg" class="err" hidden></p>
-    <label class="cf"><span class="lbl">NEAR AI key</span>
-      <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-...">
+    <label class="cf"><span class="lbl">NEAR AI key (optional)</span>
+      <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="Empty: use the free demo">
       <span class="hint"><label class="chk"><input type="checkbox" id="remember"> Remember on this device</label> · <a href="https://cloud.near.ai" target="_blank" rel="noopener">Get a key</a> · <a href="https://nearbuilders.org/join" target="_blank" rel="noopener">$10 free credits</a></span>
     </label>
     <label class="cf" for="model"><span class="lbl">Model</span>

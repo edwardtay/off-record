@@ -341,9 +341,14 @@ export async function codeChecks(report, nonce, model, deps, { offline = false }
 
 const encHeaders = (key, client, modelPub) => ({ authorization: `Bearer ${key}`, 'content-type': 'application/json', 'x-signing-algo': ALGO, 'x-client-pub-key': client.publicHex, 'x-model-pub-key': modelPub, 'x-encryption-version': '2', 'x-no-aliasing': 'true' });
 function sealMessages(modelPub, messages) { return messages.map((m) => ({ role: m.role, ...encryptTo(modelPub, m.content) })); }
+/* With no key of their own, visitors send through prompt20.com's demo relay, which adds a demo key.
+   The relay only takes encrypted requests, so it carries the same ciphertext NEAR AI's gateway sees. */
+const apiBase = (deps) => deps.api || NEARAI;
 async function nearError(r) {
   const t = await r.text().catch(() => '');
-  let msg = t.slice(0, 200); try { msg = JSON.parse(t).error?.message || msg; } catch { /* raw */ }
+  let msg = t.slice(0, 200); let relay = false;
+  try { const e = JSON.parse(t).error; msg = e?.message || msg; relay = !!e?.relay; } catch { /* raw */ }
+  if (relay) return new Error(msg);
   if (r.status === 401 || r.status === 403) return new Error('NEAR AI refused the key. Check it at cloud.near.ai.');
   if (r.status === 402) return new Error('Your NEAR AI credits have run out. Top up at cloud.near.ai.');
   if (r.status === 429) return new Error('NEAR AI is rate limiting this key. Wait a moment and send again.');
@@ -354,7 +359,7 @@ async function fetchSignature(key, model, id, deps) {
   let signature = { error: 'signature not fetched' };
   for (let a = 0; a < 6; a++) {
     if (a) await new Promise((res) => setTimeout(res, 800 * a));
-    const sr = await deps.fetch(`${NEARAI}/signature/${encodeURIComponent(id)}?model=${encodeURIComponent(model)}&signing_algo=${ALGO}`, { headers: { authorization: `Bearer ${key}` } });
+    const sr = await deps.fetch(`${apiBase(deps)}/signature/${encodeURIComponent(id)}?model=${encodeURIComponent(model)}&signing_algo=${ALGO}`, { headers: { authorization: `Bearer ${key}` } });
     if (sr.ok) { signature = await sr.json(); break; }
     signature = { error: `signature HTTP ${sr.status}` };
     if (sr.status !== 404) break;
@@ -371,7 +376,7 @@ export async function chat({ key, model, modelPub, messages, maxTokens = 1500 },
   const client = newClientKeys();
   const sealed = sealMessages(modelPub, messages);
   const request = JSON.stringify({ model, messages: sealed.map((m) => ({ role: m.role, content: m.hex })), temperature: 0, max_tokens: maxTokens, reasoning_effort: 'low' });
-  const r = await deps.fetch(`${NEARAI}/chat/completions`, { method: 'POST', body: request, headers: encHeaders(key, client, modelPub) });
+  const r = await deps.fetch(`${apiBase(deps)}/chat/completions`, { method: 'POST', body: request, headers: encHeaders(key, client, modelPub) });
   if (!r.ok) throw await nearError(r);
   const response = await r.text();
   const j = JSON.parse(response);
@@ -390,8 +395,8 @@ export async function chatStream({ key, model, modelPub, messages, maxTokens = 4
   // about half the size. A model that refuses 'none' gets 'low' (a 400 is answered before any work).
   const body = (effort) => JSON.stringify({ model, messages: sealed.map((m) => ({ role: m.role, content: m.hex })), stream: true, max_tokens: maxTokens, reasoning_effort: effort });
   let request = body('none');
-  let r = await deps.fetch(`${NEARAI}/chat/completions`, { method: 'POST', body: request, headers: encHeaders(key, client, modelPub), signal });
-  if (r.status === 400) { request = body('low'); r = await deps.fetch(`${NEARAI}/chat/completions`, { method: 'POST', body: request, headers: encHeaders(key, client, modelPub), signal }); }
+  let r = await deps.fetch(`${apiBase(deps)}/chat/completions`, { method: 'POST', body: request, headers: encHeaders(key, client, modelPub), signal });
+  if (r.status === 400) { request = body('low'); r = await deps.fetch(`${apiBase(deps)}/chat/completions`, { method: 'POST', body: request, headers: encHeaders(key, client, modelPub), signal }); }
   if (!r.ok) throw await nearError(r);
   const reader = r.body.getReader(); const dec = new TextDecoder();
   let response = ''; let pending = ''; let id = null; let stopped = false;
