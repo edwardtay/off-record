@@ -28,14 +28,14 @@ Nothing is sent until these pass, and every check runs again on any receipt:
 
 ## Try to break it
 
-The page runs four attacks against the real checks, and each is refused:
+The page runs four attacks against the real checks. Each is refused, and the gate steps it breaks turn red:
 
 | Attack | Refused by |
 |---|---|
-| Flip one byte of an encrypted reply | The encryption and the reply signature |
-| Swap in a key the quote does not contain | Key binding, encryption and signatures |
-| Replay the quote against a new challenge | The fresh nonce |
-| Send to a model NEAR AI runs at an outside provider (Claude, GPT, Gemini on NEAR AI) | Stopped before sending: NEAR AI reports no TEE for it |
+| Tamper with the reply: flip one byte of the encrypted reply | The encryption and the reply signature |
+| Use a fake lock: swap in a key the quote does not contain | Key binding, encryption and signatures |
+| Replay an old proof: offer the quote against a new challenge | The fresh nonce |
+| Send to Claude (not private): a model NEAR AI runs at an outside provider | Stopped before sending: NEAR AI reports no TEE for it |
 
 ## Two things to do with it
 
@@ -50,9 +50,9 @@ The page runs four attacks against the real checks, and each is refused:
 
 ## Try it
 
-**No key needed:** open https://prompt20.com/tools/private-prompt/. It checks the recorded private question as it loads: all six gate steps green, the plaintext beside the ciphertext, VERIFIED. Press the four **Try to break it** buttons. Under **Check a run**, open the two prompt-edit runs.
+**No key needed:** open https://prompt20.com/tools/private-prompt/. It re-checks a recorded private question as it loads: the six gate steps tick green, then an animation follows the message from your browser (plaintext) through NEAR AI's gateway (the real ciphertext) into the enclave. Click any party to see exactly what it sees. Press the four **Try to break it** buttons. Under **Demo**, open the two company-prompt runs.
 
-**Your own prompt:** get a NEAR AI key at https://cloud.near.ai ($10 free credits at https://nearbuilders.org/join), open **Run privately**, paste the key (kept in the page only, never stored) and send. Watch the gate: "No prompt sent yet" until the enclave checks pass.
+**Your own prompt:** get a NEAR AI key at https://cloud.near.ai ($10 free credits at https://nearbuilders.org/join), open **Try yours**, paste the key (kept in the page only, never stored) and send. Watch the gate: "No prompt sent yet" until the enclave checks pass.
 
 **Which models are private:** the **Models** tab asks NEAR AI for every model's attestation, live, with no key. On 2026-11-11, 12 of 63 models ran in their own TEE, 4 went through an attested router, and 47 (the Anthropic, OpenAI, Google and xAI models among them) were passed to outside providers. NEAR AI's API says so itself: "TEE attestation is not supported for external providers." The lab only offers models with their own TEE.
 

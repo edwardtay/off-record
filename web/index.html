@@ -8,11 +8,11 @@
 <meta name="author" content="Edward Tay">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=6">
 <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Prompt20","item":"https://prompt20.com/"},{"@type":"ListItem","position":2,"name":"Tools","item":"https://prompt20.com/tools/"},{"@type":"ListItem","position":3,"name":"Private Prompt Lab","item":"https://prompt20.com/tools/private-prompt/"}]},{"@type":"WebApplication","name":"Private Prompt Lab","url":"https://prompt20.com/tools/private-prompt/","applicationCategory":"DeveloperApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Send a sensitive prompt to an AI model in a NEAR AI Cloud TEE, encrypted in the browser to the key in its Intel TDX quote, and verify the TDX quote, NVIDIA GPU attestation and every signed reply in the browser.","author":{"@type":"Person","name":"Edward Tay"}},{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Does prompt20.com see my prompt or my key?","acceptedAnswer":{"@type":"Answer","text":"No. Your browser encrypts each message to the model's key, the key named inside the enclave's hardware quote, and sends it to cloud-api.near.ai. NEAR AI's gateway relays only ciphertext, and replies come back encrypted to a one-time key made in this page. The page's Content-Security-Policy only allows connections to NEAR AI, prompt20's own pages and data API, and NVIDIA's public key list. It loads no analytics. Only the public attestation evidence goes through prompt20.com, to reach Intel's and NVIDIA's verifiers."}},{"@type":"Question","name":"What does the proof show?","acceptedAnswer":{"@type":"Answer","text":"That the model ran in a non-debug Intel TDX enclave with NVIDIA confidential GPUs, that the hardware quote contains this run's fresh random nonce and the model's signing key, that the measured enclave app is the one NEAR AI serves the model from today, that every message was encrypted to that key, and that every reply was signed by it over the exact encrypted request and response bytes. The prompt is sent only after the hardware checks pass."}},{"@type":"Question","name":"What does it not show?","acceptedAnswer":{"@type":"Answer","text":"It does not prove the optimised prompt behaves the same in every case, only on your test cases, and your must and must-not rules are not signed. Token counts use the Qwen tokenizer, so other models count a few percent differently."}}]}]}</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js" integrity="sha512-bLwLr3lzJN1cvtbClBMhKDyaD0uocWmphiqO8v0w3/z/XqUwzkM00gZq7BV3dQS9mQu0rarZMTsxlcnIHszElA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="/tools/models-data.js" defer></script>
-<script type="module" src="lab.js?v=7"></script>
+<script type="module" src="lab.js?v=8"></script>
 </head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
 <symbol id="i-lab" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><path d="M8.5 15.5h2M12 15.5h3.5M8.5 18h5"/></symbol>
@@ -56,23 +56,23 @@
   <div class="sp-intro">
     <p class="sp-crumb"><a href="/tools/">Tools</a> / Private Prompt Lab</p>
     <div class="sp-top"><span class="sp-icon"><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg></span><h1>Private Prompt Lab</h1></div>
-    <p class="sp-lede">Verify the enclave before your prompt leaves. Your browser checks the hardware, encrypts to its key, and verifies the signed reply.</p>
+    <p class="sp-lede">Send a message only secure hardware can read, and check it yourself. Your browser proves the AI runs in a sealed chip, locks your message to that chip, and checks the signed reply.</p>
   </div>
 
   <div class="sp-ctrl">
     <div class="sp-seg" role="tablist" aria-label="Lab mode">
-      <button type="button" role="tab" id="tab-run" aria-controls="p-run" aria-selected="false">Run privately</button>
-      <button type="button" role="tab" id="tab-check" aria-controls="p-check" aria-selected="true">Check a run</button>
+      <button type="button" role="tab" id="tab-check" aria-controls="p-check" aria-selected="true">Demo</button>
+      <button type="button" role="tab" id="tab-run" aria-controls="p-run" aria-selected="false">Try yours</button>
       <button type="button" role="tab" id="tab-models" aria-controls="p-models" aria-selected="false">Models</button>
     </div>
 
     <div id="p-check" role="tabpanel" aria-labelledby="tab-check" class="panel-in">
-      <p class="hint">Recorded runs, checked again in your browser now. No key needed.</p>
-      <button type="button" class="sp-cta" id="check-ask"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg>Private question: lab results</button>
-      <button type="button" class="sp-cta ghost" id="check-careful"><svg class="ic sm" aria-hidden="true"><use href="#i-doc"/></svg>Private prompt edit: careful</button>
-      <button type="button" class="sp-cta ghost" id="check-extreme"><svg class="ic sm" aria-hidden="true"><use href="#i-scissors"/></svg>Private prompt edit: 40 words</button>
-      <label class="sp-cta ghost file">Open a receipt file<input type="file" id="receipt-file" accept="application/json,.json"></label>
-      <p class="hint">All three use fictional data. A receipt holds every encrypted request and reply, their signatures and the hardware attestation.</p>
+      <p class="hint">Real runs we recorded with made-up data. Your browser checks each one again now, with no key.</p>
+      <button type="button" class="sp-cta" id="check-ask"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg>A private health question</button>
+      <button type="button" class="sp-cta ghost" id="check-careful"><svg class="ic sm" aria-hidden="true"><use href="#i-doc"/></svg>A company prompt, shortened</button>
+      <button type="button" class="sp-cta ghost" id="check-extreme"><svg class="ic sm" aria-hidden="true"><use href="#i-scissors"/></svg>Shortened too far: caught</button>
+      <button type="button" class="link" id="go-try">Have a NEAR AI key? Try your own message</button>
+      <details class="more"><summary>Check a saved receipt</summary><label class="sp-cta ghost file">Open a receipt file<input type="file" id="receipt-file" accept="application/json,.json"></label></details>
     </div>
 
     <div id="p-run" role="tabpanel" aria-labelledby="tab-run" class="panel-in" hidden>
@@ -127,36 +127,38 @@
     <div id="stage-run">
       <h2 class="sp-k"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg><span id="stage-title">Checking a recorded run</span><span class="grow"></span><span id="adopt" class="vbadge" hidden></span><span id="verdict" class="vbadge">Checking</span></h2>
       <ol class="gate" id="gate" aria-label="Send gate">
-        <li data-g="enclave">Enclave checked</li>
-        <li data-g="fresh">Fresh challenge</li>
-        <li data-g="key">Key bound</li>
-        <li data-g="enc">Encrypted to key</li>
-        <li data-g="sig">Reply signed</li>
-        <li data-g="shown">Shown = signed</li>
+        <li data-g="enclave" title="Enclave checked: TEE on Intel TDX with NVIDIA GPUs, RTMR3 replay, Intel and NVIDIA verification">Real secure hardware</li>
+        <li data-g="fresh" title="Fresh challenge: a random nonce made for this run is inside the hardware quote">Checked just now</li>
+        <li data-g="key" title="Key bound: the quote names the model's Ed25519 key">Lock belongs to it</li>
+        <li data-g="enc" title="Encrypted to key: NEAR AI E2EE v2 to the attested key">Locked before sending</li>
+        <li data-g="sig" title="Reply signed: Ed25519 signature over the exact encrypted bytes">Reply signed by it</li>
+        <li data-g="shown" title="Shown = signed: what this page shows is what was signed">Nothing swapped</li>
       </ol>
       <p id="gate-note" class="gate-note"></p>
       <p id="run-error" class="err" role="alert" hidden></p>
 
-      <h3 class="who-h">Who can read your prompt?</h3>
-      <div class="who" id="who">
-        <div class="wc see"><b>Your browser</b><span class="wv">Plaintext</span><span class="ws">You type it. It is encrypted here, after the enclave checks pass.</span></div>
-        <div class="wc none"><b>prompt20.com</b><span class="wv">Nothing</span><span class="ws">The page talks to NEAR AI directly. Its security policy blocks every other destination, including analytics.</span></div>
-        <div class="wc cipher"><b>NEAR AI gateway</b><span class="wv">Ciphertext</span><span class="ws">Plus metadata: model, sizes, timing, your API key.</span></div>
-        <div class="wc see"><b>The enclave</b><span class="wv">Plaintext</span><span class="ws" id="who-enclave">Only the holder of the key in the hardware quote can decrypt.</span></div>
+      <h3 class="who-h">Who can read your prompt? <span class="sub">Click a party to see what it sees.</span></h3>
+      <div class="flow" id="flow" role="tablist" aria-label="View as">
+        <button type="button" role="tab" class="node see" data-p="browser" aria-selected="true"><b>Your browser</b><span class="nv">Plaintext</span></button>
+        <span class="wirel" aria-hidden="true"><i class="pkt"></i></span>
+        <button type="button" role="tab" class="node cipher" data-p="gateway" aria-selected="false"><b>NEAR AI gateway</b><span class="nv">Ciphertext</span></button>
+        <span class="wirel" aria-hidden="true"><i class="pkt"></i></span>
+        <button type="button" role="tab" class="node see enclave" data-p="enclave" aria-selected="false"><b>The enclave</b><span class="nv">Plaintext</span></button>
+        <button type="button" role="tab" class="node none off" data-p="prompt20" aria-selected="false"><b>prompt20.com</b><span class="nv">Not on the path</span></button>
       </div>
-
-      <div class="wire">
-        <div><h3>What you wrote</h3><pre class="wbox" id="wire-plain"></pre></div>
-        <div><h3>What NEAR AI's gateway received</h3><pre class="wbox" id="wire-cipher"></pre></div>
+      <div class="lens">
+        <div class="lens-h"><span id="lens-title">What your browser sees</span><span class="grow"></span><button type="button" class="link" id="replay-flow">Replay</button></div>
+        <pre class="wbox lens-box" id="lens-box"></pre>
+        <p class="hint" id="lens-note"></p>
       </div>
 
       <div class="break">
-        <h3>Try to break it</h3>
+        <h3>Try to break it <span class="sub">Each attack runs the real checks.</span></h3>
         <div class="break-b">
-          <button type="button" class="btn ghost" id="tamper">Flip a byte in a reply</button>
-          <button type="button" class="btn ghost" id="wrongkey">Swap in another key</button>
-          <button type="button" class="btn ghost" id="replay">Replay to a new challenge</button>
-          <button type="button" class="btn ghost" id="outside">Send to a non-TEE model</button>
+          <button type="button" class="btn ghost" id="tamper" title="Flip one byte of the encrypted reply">Tamper with the reply</button>
+          <button type="button" class="btn ghost" id="wrongkey" title="Swap in a key the hardware quote does not contain">Use a fake lock</button>
+          <button type="button" class="btn ghost" id="replay" title="Offer the old hardware quote against a new random challenge">Replay an old proof</button>
+          <button type="button" class="btn ghost" id="outside" title="anthropic/claude-sonnet-5-5 on NEAR AI runs at an outside provider">Send to Claude (not private)</button>
         </div>
         <ul id="break-out" class="break-out"></ul>
       </div>
@@ -172,7 +174,7 @@
 
 <div class="pl">
 <section class="card trust" aria-labelledby="trust-title">
-  <h2 id="trust-title"><svg class="ic" aria-hidden="true"><use href="#i-help"/></svg>Trust boundaries</h2>
+  <details><summary><h2 id="trust-title"><svg class="ic" aria-hidden="true"><use href="#i-help"/></svg>What this does not protect</h2></summary>
   <ul class="plain">
     <li>NEAR AI's gateway still sees metadata: your IP, timing, message sizes, the model, request settings and your API key.</li>
     <li>You trust the code this page delivers and NEAR AI's key management. Attestation shows what hardware and enclave app ran, not that the app never logs.</li>
@@ -181,6 +183,7 @@
     <li>Instances of one model share a signing key, so the key identifies a deployment, not one machine.</li>
     <li>A downloaded receipt contains the secrets that open its messages. Sharing it shares the prompt.</li>
   </ul>
+  </details>
 </section>
 
 <section class="card" id="checks-card"><h2><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>Every check</h2>

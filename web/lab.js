@@ -1,7 +1,7 @@
 /* Private Prompt Lab page. All checks live in engine.js, shared with the Node verifier.
    Imports carry the release tag so a deploy never mixes a cached old module with new ones. */
-import { runLab, runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=7';
-import { SAMPLE_PROMPT, SAMPLE_TESTS, SAMPLE_ASK } from './sample.js?v=7';
+import { runLab, runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=8';
+import { SAMPLE_PROMPT, SAMPLE_TESTS, SAMPLE_ASK } from './sample.js?v=8';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -120,9 +120,16 @@ async function scan() {
 $('scan').addEventListener('click', scan);
 
 /* Send gate */
-function gate(states, note) {
-  for (const li of $('gate').children) { li.className = states[li.dataset.g] || ''; }
+const REDUCE = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const wait = (ms) => new Promise((r) => setTimeout(r, REDUCE ? 0 : ms));
+let gateRun = 0;
+async function gate(states, note, stagger = false) {
+  const run = ++gateRun;
   $('gate-note').textContent = note || '';
+  for (const li of $('gate').children) {
+    if (stagger) { li.className = 'now'; await wait(170); if (run !== gateRun) return; }
+    li.className = states[li.dataset.g] || '';
+  }
 }
 const gateFrom = (v) => {
   const row = (id) => [...v.att.rows, ...v.structure].find((r) => r.id === id);
@@ -144,7 +151,12 @@ function busy(title, note) {
 }
 const STEP_GATE = { attest: { enclave: 'now' }, vendor: { enclave: 'now', fresh: 'now', key: 'now' }, optimize: { enclave: 'ok', fresh: 'ok', key: 'ok', enc: 'ok', sig: 'now' }, tests: { enclave: 'ok', fresh: 'ok', key: 'ok', enc: 'ok', sig: 'now' } };
 const STEP_NOTE = { attest: 'No prompt sent yet.', vendor: 'No prompt sent yet.', optimize: 'Checks passed. Sent, encrypted to the enclave key.', tests: 'Each test message is encrypted too.' };
-const onStep = (id, msg) => gate(STEP_GATE[id] || {}, `${STEP_NOTE[id] || ''} ${msg}.`);
+const onStep = (id, msg) => {
+  gate(STEP_GATE[id] || {}, `${STEP_NOTE[id] || ''} ${msg}.`);
+  const enc = $('flow').querySelector('.node[data-p="enclave"]');
+  enc.classList.toggle('checking', id === 'attest' || id === 'vendor');
+  if (id === 'optimize') { const l = $('flow').querySelectorAll('.wirel'); l.forEach((x) => { x.classList.remove('go'); void x.offsetWidth; x.classList.add('go'); }); }
+};
 $('run').addEventListener('click', async () => {
   const key = $('key').value.trim();
   const err = $('run-error');
@@ -214,15 +226,61 @@ function diff(a, b) {
   return [L, R];
 }
 
-/* The wire view: what the person wrote, beside the exact request body NEAR AI's gateway received. */
-function wire(rc) {
+/* Who can read it: a flow of the three parties on the path (and prompt20.com, off it), and a lens
+   that shows exactly what the chosen party sees, from the real request and reply bytes. */
+const HEX = '0123456789abcdef';
+let lens = {}; let lensRun = 0; let lensText = '';
+function lensData(rc, v) {
   const call = rc.calls[0];
-  const plain = rc.kind === 'ask' ? [rc.system ? `[instructions]\n${rc.system}` : '', `[message]\n${rc.message}`].filter(Boolean).join('\n\n') : `[system prompt sent for editing]\n${rc.original}`;
-  $('wire-plain').textContent = plain;
+  const plain = rc.kind === 'ask' ? [rc.system ? `[instructions]\n${rc.system}` : '', `[message]\n${rc.message}`].filter(Boolean).join('\n\n') : `[company system prompt]\n${rc.original}`;
   let body = call.request;
   try { body = JSON.stringify(JSON.parse(call.request), null, 1); } catch { /* keep raw */ }
-  $('wire-cipher').innerHTML = esc(body).replace(/(&quot;content&quot;: &quot;)([0-9a-f]{40,})(&quot;)/g, (_, a, hex, c) => `${a}<span class="hex">${hex}</span>${c}`);
+  const reply = rc.kind === 'ask' ? v.reply : '';
+  const key = String(v.att.signer || '').slice(0, 12);
+  return {
+    browser: { title: 'What your browser sees', text: plain, note: 'You typed this. It is readable only here and inside the secure chip.' },
+    gateway: { title: "What NEAR AI's gateway sees", text: body, hex: true, note: 'The exact request it received. The model name is visible; your words are gibberish. It also sees your IP, timing, sizes and API key.' },
+    enclave: { title: 'What the secure chip sees', text: plain + (reply ? `\n\n[its reply, locked back to your browser]\n${reply.slice(0, 600)}${reply.length > 600 ? ' ...' : ''}` : ''), note: `Unlocked inside the chip with key ${key}..., the key named in its hardware proof. Nobody else holds it.` },
+    prompt20: { title: 'What prompt20.com sees', text: '', note: "Nothing. This page talks to NEAR AI directly, and its security policy blocks sending your data anywhere else, including analytics. Only the public hardware proof passes through prompt20.com, to reach Intel and NVIDIA." },
+  };
 }
+const escHex = (t) => esc(t).replace(/(&quot;content&quot;: &quot;)([0-9a-f]{40,})(&quot;)/g, (_, a, h, c) => `${a}<span class="hex">${h}</span>${c}`);
+async function showLens(p, animate = true) {
+  const d = lens[p]; if (!d) return;
+  for (const n of $('flow').querySelectorAll('.node')) n.setAttribute('aria-selected', String(n.dataset.p === p));
+  $('lens-title').textContent = d.title; $('lens-note').textContent = d.note;
+  const box = $('lens-box');
+  box.classList.toggle('empty', !d.text);
+  const target = d.text || '(nothing)';
+  const run = ++lensRun;
+  if (animate && !REDUCE && lensText) {
+    // Scramble from the old text into the new one, left to right.
+    const n = Math.min(Math.max(target.length, 1), 900); const frames = 22;
+    for (let f = 1; f <= frames; f++) {
+      if (run !== lensRun) return;
+      const k = Math.floor((n * f) / frames);
+      let tail = ''; for (let i = k; i < Math.min(n, k + 160); i++) tail += target[i] === '\n' ? '\n' : HEX[(Math.random() * 16) | 0];
+      box.textContent = target.slice(0, k) + tail;
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+  }
+  if (run !== lensRun) return;
+  if (d.hex) box.innerHTML = escHex(target); else box.textContent = target;
+  lensText = target;
+}
+async function playFlow() {
+  const links = [...$('flow').querySelectorAll('.wirel')];
+  const nodes = (p) => $('flow').querySelector(`.node[data-p="${p}"]`);
+  for (const n of $('flow').querySelectorAll('.node')) n.classList.remove('lit');
+  nodes('browser').classList.add('lit'); await showLens('browser'); await wait(900);
+  links[0].classList.remove('go'); void links[0].offsetWidth; links[0].classList.add('go'); await wait(700);
+  nodes('gateway').classList.add('lit'); await showLens('gateway'); await wait(1500);
+  links[1].classList.remove('go'); void links[1].offsetWidth; links[1].classList.add('go'); await wait(700);
+  nodes('enclave').classList.add('lit'); await showLens('enclave');
+}
+for (const n of document.querySelectorAll('#flow .node')) n.addEventListener('click', () => showLens(n.dataset.p));
+$('replay-flow').addEventListener('click', playFlow);
+$('go-try').addEventListener('click', () => showTab('run'));
 
 /* Results */
 let current = null;
@@ -234,9 +292,8 @@ function render(rc, v, note) {
   vd.textContent = v.ok ? 'VERIFIED' : 'NOT VERIFIED';
   const why = v.ok ? '' : v.unreachable ? ' · a verifier could not be reached, press Check again' : '';
   $('stage-title').textContent = `${note || 'This run'} · ${rc.model} · ${new Date(rc.created).toUTCString().slice(5, 22)} UTC${why}`;
-  gate(gateFrom(v), v.ok ? 'Every step verified. The prompt left the browser only as ciphertext, to the key in the hardware quote.' : 'A step failed. See Every check below.');
-  $('who-enclave').textContent = `Only the holder of key ${String(v.att.signer || '').slice(0, 12)}..., named in the hardware quote with this run's nonce, can decrypt.`;
-  wire(rc);
+  gate(gateFrom(v), v.ok ? 'All six checks passed. The message left the browser locked to the chip in the hardware proof.' : 'A check failed. See Every check below.', true);
+  lens = lensData(rc, v); playFlow();
   $('break-out').innerHTML = '';
 
   const ad = $('adopt');
@@ -276,6 +333,19 @@ function render(rc, v, note) {
   $('tests-t').tBodies[0].innerHTML = v.tests.map((x) => { const reg = x.original?.pass && !x.optimized?.pass; return `<tr${reg ? ' class="regress"' : ''}><td>${reg ? '<span class="pill bad">Regression</span> ' : ''}${esc(x.input)}</td><td>${cell(x.original)}</td><td>${cell(x.optimized)}</td></tr>`; }).join('');
 }
 
+let flashTimer = 0;
+function flashGate(keys, label) {
+  const note = $('gate-note'); const restore = note.dataset.base || note.textContent;
+  note.dataset.base = restore;
+  note.textContent = `${label}: refused. The red checks are the ones it breaks.`;
+  for (const li of $('gate').children) if (keys.has(li.dataset.g)) { const was = li.dataset.was || li.className; li.dataset.was = was; li.className = 'bad shake'; }
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => {
+    for (const li of $('gate').children) if (li.dataset.was !== undefined) { li.className = li.dataset.was; delete li.dataset.was; }
+    note.textContent = note.dataset.base; delete note.dataset.base;
+  }, REDUCE ? 1500 : 2600);
+}
+
 /* Try to break it: each attack runs the real checks on a changed copy, offline, and lists what refused it. */
 async function attack(label, mutate) {
   if (!current) return;
@@ -285,24 +355,30 @@ async function attack(label, mutate) {
   const failed = [...v.att.rows.filter((r) => !['intel', 'nvidia', 'same-app'].includes(r.id)), ...v.structure].filter((r) => !r.ok).map((r) => r.label);
   const badSigs = v.calls.filter((c) => !c.ok).length;
   if (badSigs) failed.push(`${badSigs} reply signature${badSigs === 1 ? '' : 's'}`);
+  const ROW_GATE = { 'model-tee': 'enclave', app: 'enclave', nonce: 'fresh', 'key-bound': 'key', e2ee: 'enc' };
+  const hit = new Set([...v.att.rows, ...v.structure].filter((r) => !r.ok && !['intel', 'nvidia', 'same-app'].includes(r.id)).map((r) => ROW_GATE[r.id] || 'shown'));
+  if (badSigs) hit.add('sig');
+  flashGate(hit, label);
   const li = document.createElement('li');
-  li.innerHTML = failed.length ? `${pill(false, '', 'Refused')} <b>${esc(label)}</b>: ${esc(why)} Failed: ${esc(failed.join('; '))}.` : `${pill(true, 'Accepted', '')} <b>${esc(label)}</b>: nothing caught this. Please report it.`;
+  const plain = [...$('gate').children].filter((g) => hit.has(g.dataset.g)).map((g) => g.textContent.trim());
+  li.title = `Technical: ${failed.join('; ')}`;
+  li.innerHTML = failed.length ? `${pill(false, '', 'Refused')} <b>${esc(label)}</b>: ${esc(why)} It fails: ${esc(plain.join(', '))}.` : `${pill(true, 'Accepted', '')} <b>${esc(label)}</b>: nothing caught this. Please report it.`;
   $('break-out').prepend(li);
 }
-$('tamper').addEventListener('click', () => attack('Flip a byte', (rc) => {
+$('tamper').addEventListener('click', () => attack('Tamper with the reply', (rc) => {
   const c = rc.calls[0]; const i = c.response.indexOf('"content"') + 14;
   c.response = c.response.slice(0, i) + (c.response[i] === 'a' ? 'b' : 'a') + c.response.slice(i + 1);
-  return 'one hex character of the encrypted reply changed.';
+  return 'one character of the locked reply was changed.';
 }));
-$('wrongkey').addEventListener('click', () => attack('Swap in another key', (rc) => {
+$('wrongkey').addEventListener('click', () => attack('Use a fake lock', (rc) => {
   const m = modelAttestation(rc.attestation, rc.model);
   const fake = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, '0')).join('');
   m.signing_public_key = fake; m.signing_address = fake;
-  return 'the receipt now names a key the quote does not contain.';
+  return 'the proof now names a lock the hardware never signed.';
 }));
-$('replay').addEventListener('click', () => attack('Replay to a new challenge', (rc) => {
+$('replay').addEventListener('click', () => attack('Replay an old proof', (rc) => {
   rc.nonce = newNonce();
-  return 'the old quote is offered against a fresh random challenge.';
+  return 'an old hardware proof is offered for a new check.';
 }));
 $('outside').addEventListener('click', async () => {
   const li = document.createElement('li');
@@ -310,7 +386,8 @@ $('outside').addEventListener('click', async () => {
     await runAsk({ key: 'not-needed', model: 'anthropic/claude-sonnet-5-5', message: 'test' }, deps);
     li.innerHTML = `${pill(true, 'Sent', '')} <b>Non-TEE model</b>: a message was sent. Please report it.`;
   } catch (e) {
-    li.innerHTML = `${pill(false, '', 'Refused')} <b>Send to a non-TEE model</b> (anthropic/claude-sonnet-5-5 on NEAR AI): ${esc(e.message)}`;
+    flashGate(new Set(['enclave']), 'Send to Claude (not private)');
+    li.innerHTML = `${pill(false, '', 'Refused')} <b>Send to Claude (not private)</b> (anthropic/claude-sonnet-5-5 on NEAR AI): ${esc(e.message)}`;
   }
   $('break-out').prepend(li);
 });
