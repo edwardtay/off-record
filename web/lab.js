@@ -1,7 +1,7 @@
 /* Private Prompt Lab page. All checks live in engine.js, shared with the Node verifier.
    Imports carry the release tag so a deploy never mixes a cached old module with new ones. */
-import { runLab, runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=13';
-import { SAMPLE_PROMPT, SAMPLE_TESTS, SAMPLE_ASK } from './sample.js?v=13';
+import { runLab, runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=14';
+import { SAMPLE_PROMPT, SAMPLE_TESTS, SAMPLE_ASK } from './sample.js?v=14';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -143,7 +143,7 @@ const gateFrom = (v) => {
   const all = (ids) => ids.every((id) => row(id)?.ok);
   const st = (ok) => (ok ? 'ok' : 'bad');
   return {
-    enclave: st(all(['model-tee', 'app', 'intel', 'nvidia'])), fresh: st(all(['nonce'])), key: st(all(['key-bound'])),
+    enclave: st(all(['model-tee', 'app', 'intel-sig', 'intel', 'nvidia'])), fresh: st(all(['nonce'])), key: st(all(['key-bound'])),
     enc: st(all(['e2ee'])), sig: st(v.calls.length > 0 && v.calls.every((c) => c.ok)),
     shown: st(v.structure.filter((r) => r.id !== 'e2ee').every((r) => r.ok)),
   };
@@ -385,10 +385,10 @@ function renderCode(code, rc) {
   const { compose: c, deploy: d, gateway: g } = code;
   const src = d.source;
   const pending = (x) => x === null || x === undefined;
-  const intelTxt = (x) => (pending(x) ? 'Intel not asked (offline)' : x ? 'Intel verifies it' : 'Intel did not verify it');
+  const intelTxt = (x, sig) => `Intel's signature ${sig ? 'checks out here' : 'FAILS here'}${pending(x) ? '' : x ? ', and the DCAP verifier agrees' : ', but the DCAP verifier did not accept it'}`;
   const links = [
     { ok: c.ok, title: 'The enclave booted this compose file', body: c.ok ? `${esc(c.name)}: its sha256 is in the hardware quote twice (MRCONFIGID and the RTMR3 event log). It pins ${c.images.map((i) => `<code>${esc(short(i))}</code>`).join(', ')}.` : 'The compose file does not match the quote.' },
-    { ok: d.ok && d.intel !== false, title: 'NEAR AI\'s deploy log, signed by the same chip', body: d.present ? `${d.entries} deploy actions. Their hash and this run's nonce are in a second TDX quote from the same VM (same MRTD and RTMRs). ${intelTxt(d.intel)}.` : 'No deploy log in this proof.' },
+    { ok: d.ok && d.intel !== false, title: 'NEAR AI\'s deploy log, signed by the same chip', body: d.present ? `${d.entries} deploy actions. Their hash and this run's nonce are in a second TDX quote from the same VM (same MRTD and RTMRs). ${intelTxt(d.intel, d.sig)}.` : 'No deploy log in this proof.' },
   ];
   if (d.containers?.length || src) {
     const ct = d.containers?.[0] || {};
@@ -399,7 +399,7 @@ function renderCode(code, rc) {
       links.push({ ok: pinned, mid: !pinned, title: 'The inference engine and weights', body: `Engine <code>${esc(short(src.image))}</code>${/@sha256:/.test(src.image) ? ', pinned by digest' : src.built ? ', built in the enclave from that file' : ', not pinned by digest'}.${src.weights ? ` Weights ${src.revision ? ghLink(`https://huggingface.co/${src.weights}/tree/${src.revision}`, `${src.weights} at ${src.revision.slice(0, 7)}`) : esc(src.weights)}, as labelled in that file.` : ''}` });
     }
   }
-  links.push({ ok: g.ok && g.intel !== false, title: 'NEAR AI\'s gateway runs in its own enclave', body: g.present ? `The gateway that relays your ciphertext: ${g.compose.images.filter((i) => /cloud-api/.test(i)).map((i) => `<code>${esc(short(i))}</code>`).join('') || esc(g.compose.name)}. Its quote names its key and this run's nonce, and its compose file matches. ${intelTxt(g.intel)}.` : 'No gateway proof in this run.' });
+  links.push({ ok: g.ok && g.intel !== false, title: 'NEAR AI\'s gateway runs in its own enclave', body: g.present ? `The gateway that relays your ciphertext: ${g.compose.images.filter((i) => /cloud-api/.test(i)).map((i) => `<code>${esc(short(i))}</code>`).join('') || esc(g.compose.name)}. Its quote names its key and this run's nonce, and its compose file matches. ${intelTxt(g.intel, g.sig)}.` : 'No gateway proof in this run.' });
   const okN = links.filter((l) => l.ok).length;
   $('code-sum').className = `pill ${okN === links.length ? 'ok' : 'bad'}`;
   $('code-sum').textContent = `${okN} of ${links.length} linked`;
@@ -492,7 +492,7 @@ async function attack(label, mutate) {
   const failed = [...v.att.rows.filter((r) => !['intel', 'nvidia', 'same-app'].includes(r.id)), ...v.structure].filter((r) => !r.ok).map((r) => r.label);
   const badSigs = v.calls.filter((c) => !c.ok).length;
   if (badSigs) failed.push(`${badSigs} reply signature${badSigs === 1 ? '' : 's'}`);
-  const ROW_GATE = { 'model-tee': 'enclave', app: 'enclave', nonce: 'fresh', 'key-bound': 'key', e2ee: 'enc' };
+  const ROW_GATE = { 'model-tee': 'enclave', app: 'enclave', 'intel-sig': 'enclave', nonce: 'fresh', 'key-bound': 'key', e2ee: 'enc' };
   const hit = new Set([...v.att.rows, ...v.structure].filter((r) => !r.ok && !['intel', 'nvidia', 'same-app'].includes(r.id)).map((r) => ROW_GATE[r.id] || 'shown'));
   if (badSigs) hit.add('sig');
   flashGate(hit, label);
@@ -512,6 +512,14 @@ $('wrongkey').addEventListener('click', () => attack('Use a fake lock', (rc) => 
   const fake = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, '0')).join('');
   m.signing_public_key = fake; m.signing_address = fake;
   return 'a lock the chip never signed.';
+}));
+$('forge').addEventListener('click', () => attack('Forge the hardware proof', (rc) => {
+  // Write a fake key into the quote's report data, so the key-binding check alone would pass.
+  const m = modelAttestation(rc.attestation, rc.model);
+  const fake = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  m.intel_quote = m.intel_quote.slice(0, 568 * 2) + fake + m.intel_quote.slice(600 * 2);
+  m.signing_public_key = fake; m.signing_address = fake;
+  return 'the quote rewritten to name a key the attacker holds.';
 }));
 $('replay').addEventListener('click', () => attack('Replay an old proof', (rc) => {
   rc.nonce = newNonce();

@@ -10,7 +10,8 @@
    }
 */
 
-import { newClientKeys, encryptTo, openRequestField, decryptWith, verifyEd25519 } from './e2ee.js?v=11';
+import { newClientKeys, encryptTo, openRequestField, decryptWith, verifyEd25519 } from './e2ee.js?v=14';
+import { verifyTdxQuote } from './dcap.js?v=14';
 
 export const NEARAI = 'https://cloud-api.near.ai/v1';
 const ALGO = 'ed25519';
@@ -190,7 +191,10 @@ export async function checkAttestation(report, nonce, model, vendor, live) {
   const bound = ed ? addr.length === 64 && rd.slice(0, 64) === addr && strip0x(m.signing_address) === addr : !!addr && rd.slice(0, 40) === addr && /^0+$/.test(rd.slice(40, 64));
   rows.push({ id: 'key-bound', label: 'The quote names the model\'s key', ok: bound, detail: ed ? `Ed25519 ${addr.slice(0, 16)}..., used to sign replies and to encrypt to` : `0x${addr}` });
   rows.push({ id: 'app', label: 'The event log replays to the quote\'s RTMR3', ok: app.ok && app.debug === false, detail: app.ok ? `dstack app ${app.appId}, compose hash ${String(app.composeHash).slice(0, 16)}...${app.debug ? ', DEBUG enclave' : ', not a debug enclave'}` : 'the measured app could not be confirmed' });
-  rows.push({ id: 'intel', label: 'Intel TDX quote verifies', ok: !!vendor?.tdx?.verified, unreachable: !!vendor?.tdx?.unreachable, detail: vendor?.tdx?.error || `checked just now with Phala's DCAP verifier` });
+  const dcap = m.intel_quote ? verifyTdxQuote(m.intel_quote) : { ok: false, steps: {} };
+  const failedSteps = Object.entries(dcap.steps).filter(([, ok]) => !ok).map(([k]) => k);
+  rows.push({ id: 'intel-sig', label: 'Intel\'s signature on the quote checks out, here', ok: dcap.ok, detail: dcap.ok ? `signed by Intel's TDX quoting enclave; PCK certificate chain to Intel's pinned root key, checked here with no verifier service` : `failed: ${failedSteps.join(', ') || dcap.error}` });
+  rows.push({ id: 'intel', label: 'Intel\'s DCAP verifier accepts the quote', ok: !!vendor?.tdx?.verified, unreachable: !!vendor?.tdx?.unreachable, detail: vendor?.tdx?.error || `checked just now with Phala's DCAP verifier, which adds Intel's TCB status and revocation lists` });
   rows.push({ id: 'nvidia', label: 'NVIDIA attests the GPUs', ok: !!vendor?.gpu?.verified && strip0x(vendor.gpu.nonce) === strip0x(nonce) && vendor.gpu.noDebug, unreachable: !!vendor?.gpu?.unreachable, detail: vendor?.gpu?.error || `${vendor?.gpu?.gpus || 0} GPU${vendor?.gpu?.gpus === 1 ? '' : 's'}, each token's NVIDIA signature checked here, this nonce, debug off, secure boot on` });
   if (live) {
     const sameApp = !!live.app?.ok && live.app.appId === app.appId;
@@ -261,8 +265,9 @@ export async function deployLog(att, nonce, model) {
   const whole = [...cm.actions].reverse().find((a) => a.action === 'compose_up' && !a.services && a.file);
   if (!mine.length && whole) mine = [[null, whole]];
   const last = cm.actions[cm.actions.length - 1] || {};
+  const sig = verifyTdxQuote(cm.quote || '').ok;
   return {
-    ok: hash === strip0x(cm.actions_hash) && rd === hash + strip0x(nonce) && sameVm,
+    ok: hash === strip0x(cm.actions_hash) && rd === hash + strip0x(nonce) && sameVm && sig, sig,
     present: true, hashOk: hash === strip0x(cm.actions_hash), nonceOk: rd === hash + strip0x(nonce), sameVm,
     entries: cm.actions.length, quote: cm.quote,
     latest: { at: last.timestamp || null, tag: last.tag || null, commit: last.commit || null, file: last.file || null },
@@ -313,7 +318,8 @@ export async function gatewayCheck(report, nonce) {
   const key = strip0x(g.signing_address);
   const app = await measuredApp(g);
   const compose = await composeCheck(g);
-  return { ok: key.length === 64 && rd === key + strip0x(nonce) && app.ok && app.debug === false && compose.ok, present: true, key, app, compose, quote: g.intel_quote };
+  const sig = verifyTdxQuote(g.intel_quote).ok;
+  return { ok: key.length === 64 && rd === key + strip0x(nonce) && app.ok && app.debug === false && compose.ok && sig, sig, present: true, key, app, compose, quote: g.intel_quote };
 }
 
 /** All three, with Intel asked now about the deploy-log quote and the gateway quote. */

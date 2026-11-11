@@ -81,3 +81,36 @@ test('the sensitive-item scan keeps only text that is in the message', () => {
   const items = parseScan('{"items":[{"text":"Mei Lin","type":"name"},{"text":"made up","type":"name"}]}', 'Patient Mei Lin, 54');
   assert.deepEqual(items, [{ text: 'Mei Lin', type: 'name' }]);
 });
+
+test('Intel signature chain verifies in-process on every recorded quote', async () => {
+  const { verifyTdxQuote } = await import('../web/dcap.js');
+  for (const f of SAMPLES) {
+    const rc = load(f); const m = modelAttestation(rc.attestation, rc.model);
+    for (const q of [m.intel_quote, m.compose_manager_attestation.quote, rc.attestation.gateway_attestation.intel_quote]) {
+      const r = verifyTdxQuote(q);
+      assert.ok(r.ok, `${f}: ${JSON.stringify(r.steps)}`);
+      assert.deepEqual(r.chain, ['Intel SGX PCK Certificate', 'Intel SGX PCK Platform CA', 'Intel SGX Root CA']);
+    }
+  }
+});
+
+test('a quote rewritten to name another key passes key binding but fails Intel\'s signature', async () => {
+  const rc = load('sample-ask');
+  const m = modelAttestation(rc.attestation, rc.model);
+  const fake = 'ef'.repeat(32);
+  m.intel_quote = m.intel_quote.slice(0, 568 * 2) + fake + m.intel_quote.slice(600 * 2);
+  m.signing_public_key = m.signing_address = fake;
+  const att = await checkAttestation(rc.attestation, rc.nonce, rc.model, null, null);
+  assert.equal(att.rows.find((r) => r.id === 'key-bound').ok, true, 'the forgery fools the binding check');
+  assert.equal(att.rows.find((r) => r.id === 'intel-sig').ok, false, 'Intel\'s signature catches it');
+});
+
+test('a swapped attestation key breaks the quote signature and the QE binding', async () => {
+  const { verifyTdxQuote } = await import('../web/dcap.js');
+  const rc = load('sample-ask'); const m = modelAttestation(rc.attestation, rc.model);
+  // Flip one byte of the attestation key: the quote signature and the QE binding must both fail.
+  const at = (636 + 64) * 2;
+  const bad = m.intel_quote.slice(0, at) + (m.intel_quote[at] === '0' ? '1' : '0') + m.intel_quote.slice(at + 1);
+  const r = verifyTdxQuote(bad);
+  assert.equal(r.ok, false); assert.equal(r.steps.quoteSig, false); assert.equal(r.steps.qeBinding, false);
+});

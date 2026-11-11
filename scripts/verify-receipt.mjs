@@ -31,9 +31,9 @@ const { compose: cc, deploy: dl, gateway: gw } = v.code;
 const src = dl.source;
 console.log('\nWhat code is running');
 console.log(`${mark(cc.ok)}  compose file ${cc.name} hashes to the quote's MRCONFIGID and RTMR3 compose hash (${cc.hash.slice(0, 16)}...)`);
-console.log(`${mark(dl.ok && dl.intel !== false)}  deploy log: ${dl.entries} actions hashed into a second quote with this nonce, same VM, Intel ${dl.intel === null ? 'not asked' : dl.intel ? 'verifies' : 'REJECTS'}`);
+console.log(`${mark(dl.ok && dl.intel !== false)}  deploy log: ${dl.entries} actions hashed into a second quote with this nonce, same VM, Intel signature ${dl.sig ? 'checks out' : 'FAILS'}, DCAP verifier ${dl.intel === null ? 'not asked' : dl.intel ? 'accepts' : 'REJECTS'}`);
 if (src) console.log(`${mark(src.ok)}  ${src.service || 'model container'} from ${src.url}: GitHub file matches the logged sha256\n      engine ${src.image}${src.weights ? `, weights ${src.weights}${src.revision ? `@${src.revision.slice(0, 7)}` : ''}` : ''}`);
-console.log(`${mark(gw.ok && gw.intel !== false)}  gateway enclave: quote names its key ${gw.key?.slice(0, 16)}... and this nonce, Intel ${gw.intel === null ? 'not asked' : gw.intel ? 'verifies' : 'REJECTS'}\n`);
+console.log(`${mark(gw.ok && gw.intel !== false)}  gateway enclave: quote names its key ${gw.key?.slice(0, 16)}... and this nonce, Intel signature ${gw.sig ? 'checks out' : 'FAILS'}, DCAP verifier ${gw.intel === null ? 'not asked' : gw.intel ? 'accepts' : 'REJECTS'}\n`);
 if (rc.kind === 'ask') console.log(`\nReply (decrypted): ${String(v.reply).replace(/\s+/g, ' ').slice(0, 300)}`);
 else {
 console.log(`\nTokens per call: ${v.tokens.original} -> ${v.tokens.optimized} (saves ${v.tokens.savedPerCall})`);
