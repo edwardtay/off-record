@@ -13,12 +13,12 @@
     "capture": "node scripts/capture-sample.mjs",
     "sync": "./sync.sh",
     "verify:extreme": "node scripts/verify-receipt.mjs web/sample-extreme.json",
-    "verify:ask": "node scripts/verify-receipt.mjs web/sample-ask.json"
+    "verify:ask": "node scripts/verify-receipt.mjs web/sample-ask.json",
+    "vendor": "npx -y esbuild@0.24.0 vendor-src/noble.js --bundle --format=esm --minify --legal-comments=inline --outfile=web/vendor/noble.js"
   },
-  "dependencies": {
-    "@noble/ciphers": "^1.3.0",
-    "@noble/curves": "^1.9.7",
-    "@noble/hashes": "^1.8.0",
-    "ethers": "6.13.4"
+  "devDependencies": {
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0",
+    "@noble/ciphers": "1.3.0"
   }
 }

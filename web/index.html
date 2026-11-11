@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloud-api.near.ai https://nras.attestation.nvidia.com https://data.prompt20.com; form-action 'none'; base-uri 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloud-api.near.ai https://nras.attestation.nvidia.com https://data.prompt20.com; form-action 'none'; base-uri 'self'">
 <title>Private Prompt Lab: verifiable private AI in a TEE | Prompt20</title>
 <meta name="description" content="Shorten a system prompt inside a sealed GPU enclave on NEAR AI Cloud, test it on your own cases, and check the Intel TDX and NVIDIA proof in your browser.">
 <link rel="canonical" href="https://prompt20.com/tools/private-prompt/"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -8,11 +8,10 @@
 <meta name="author" content="Edward Tay">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=6">
-<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Prompt20","item":"https://prompt20.com/"},{"@type":"ListItem","position":2,"name":"Tools","item":"https://prompt20.com/tools/"},{"@type":"ListItem","position":3,"name":"Private Prompt Lab","item":"https://prompt20.com/tools/private-prompt/"}]},{"@type":"WebApplication","name":"Private Prompt Lab","url":"https://prompt20.com/tools/private-prompt/","applicationCategory":"DeveloperApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Send a sensitive prompt to an AI model in a NEAR AI Cloud TEE, encrypted in the browser to the key in its Intel TDX quote, and verify the TDX quote, NVIDIA GPU attestation and every signed reply in the browser.","author":{"@type":"Person","name":"Edward Tay"}},{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Does prompt20.com see my prompt or my key?","acceptedAnswer":{"@type":"Answer","text":"No. Your browser encrypts each message to the model's key, the key named inside the enclave's hardware quote, and sends it to cloud-api.near.ai. NEAR AI's gateway relays only ciphertext, and replies come back encrypted to a one-time key made in this page. The page's Content-Security-Policy only allows connections to NEAR AI, prompt20's own pages and data API, and NVIDIA's public key list. It loads no analytics. Only the public attestation evidence goes through prompt20.com, to reach Intel's and NVIDIA's verifiers."}},{"@type":"Question","name":"What does the proof show?","acceptedAnswer":{"@type":"Answer","text":"That the model ran in a non-debug Intel TDX enclave with NVIDIA confidential GPUs, that the hardware quote contains this run's fresh random nonce and the model's signing key, that the measured enclave app is the one NEAR AI serves the model from today, that every message was encrypted to that key, and that every reply was signed by it over the exact encrypted request and response bytes. The prompt is sent only after the hardware checks pass."}},{"@type":"Question","name":"What does it not show?","acceptedAnswer":{"@type":"Answer","text":"It does not prove the optimised prompt behaves the same in every case, only on your test cases, and your must and must-not rules are not signed. Token counts use the Qwen tokenizer, so other models count a few percent differently."}}]}]}</script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js" integrity="sha512-bLwLr3lzJN1cvtbClBMhKDyaD0uocWmphiqO8v0w3/z/XqUwzkM00gZq7BV3dQS9mQu0rarZMTsxlcnIHszElA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=8">
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Prompt20","item":"https://prompt20.com/"},{"@type":"ListItem","position":2,"name":"Tools","item":"https://prompt20.com/tools/"},{"@type":"ListItem","position":3,"name":"Private Prompt Lab","item":"https://prompt20.com/tools/private-prompt/"}]},{"@type":"WebApplication","name":"Private Prompt Lab","url":"https://prompt20.com/tools/private-prompt/","applicationCategory":"DeveloperApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Send a sensitive prompt to an AI model in a NEAR AI Cloud TEE, encrypted in the browser to the key in its Intel TDX quote, and verify the TDX quote, NVIDIA GPU attestation and every signed reply in the browser.","author":{"@type":"Person","name":"Edward Tay"}}]}</script>
 <script src="/tools/models-data.js" defer></script>
-<script type="module" src="lab.js?v=8"></script>
+<script type="module" src="lab.js?v=10"></script>
 </head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
 <symbol id="i-lab" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><path d="M8.5 15.5h2M12 15.5h3.5M8.5 18h5"/></symbol>
@@ -56,7 +55,7 @@
   <div class="sp-intro">
     <p class="sp-crumb"><a href="/tools/">Tools</a> / Private Prompt Lab</p>
     <div class="sp-top"><span class="sp-icon"><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg></span><h1>Private Prompt Lab</h1></div>
-    <p class="sp-lede">Send a message only secure hardware can read, and check it yourself. Your browser proves the AI runs in a sealed chip, locks your message to that chip, and checks the signed reply.</p>
+    <p class="sp-lede">Send a message only a sealed chip can read. Your browser checks the chip, locks the message to it, and verifies the reply.</p>
   </div>
 
   <div class="sp-ctrl">
@@ -67,7 +66,7 @@
     </div>
 
     <div id="p-check" role="tabpanel" aria-labelledby="tab-check" class="panel-in">
-      <p class="hint">Real runs we recorded with made-up data. Your browser checks each one again now, with no key.</p>
+      <p class="hint">Recorded runs with made-up data, re-checked live. No key needed.</p>
       <button type="button" class="sp-cta" id="check-ask"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg>A private health question</button>
       <button type="button" class="sp-cta ghost" id="check-careful"><svg class="ic sm" aria-hidden="true"><use href="#i-doc"/></svg>A company prompt, shortened</button>
       <button type="button" class="sp-cta ghost" id="check-extreme"><svg class="ic sm" aria-hidden="true"><use href="#i-scissors"/></svg>Shortened too far: caught</button>
@@ -82,18 +81,18 @@
       </div>
       <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-key"/></svg>NEAR AI key</span>
         <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-...">
-        <span class="hint">Kept in this page only, never stored. <a href="https://cloud.near.ai" target="_blank" rel="noopener">Get a key</a> · <a href="https://nearbuilders.org/join" target="_blank" rel="noopener">$10 free credits</a></span>
+        <span class="hint">Never stored. <a href="https://cloud.near.ai" target="_blank" rel="noopener">Get a key</a> · <a href="https://nearbuilders.org/join" target="_blank" rel="noopener">$10 free credits</a></span>
       </label>
       <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg>Enclave model</span>
         <select id="model"><option>Qwen/Qwen3.8-27B</option><option>Qwen/Qwen3.6-35B-A3B-FP8</option><option>Qwen/Qwen3-VL-30B-A3B-Instruct</option><option>deepseek-ai/DeepSeek-V4.1-Flash-1017</option><option>z-ai/glm-5.3-flash</option><option>Qwen/Qwen3.8-27B-abliterated</option><option>deepseek-ai/DeepSeek-V4.1-Flash-1017-abliterated</option></select>
-        <span class="hint" id="model-hint">7 chat models with their own TEE (checked 11 Nov). Each run checks again.</span>
+        <span class="hint" id="model-hint">Only models in their own TEE.</span>
       </label>
 
       <div id="ask-fields" class="panel-in">
         <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-doc"/></svg>Instructions <span class="sub">optional</span><span class="grow"></span><button type="button" class="link" id="load-ask">Sample</button></span>
           <textarea id="ask-system" rows="2" spellcheck="false"></textarea></label>
         <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-lab"/></svg>Your message</span>
-          <textarea id="ask-message" rows="6" spellcheck="false" placeholder="Anything you would not paste into an ordinary chatbot"></textarea></label>
+          <textarea id="ask-message" rows="6" spellcheck="false" placeholder="Something you would not paste into a normal chatbot"></textarea></label>
       </div>
 
       <div id="opt-fields" class="panel-in" hidden>
@@ -118,7 +117,7 @@
     </div>
 
     <div id="p-models" role="tabpanel" aria-labelledby="tab-models" class="panel-in" hidden>
-      <p class="hint">NEAR AI Cloud runs some models in its own TEEs and passes others to outside providers. This asks NEAR AI for every model's attestation, live, with no key.</p>
+      <p class="hint">Which NEAR AI models really run in a sealed chip? Checked live, no key.</p>
       <button type="button" class="sp-cta" id="scan"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg>Check every model now</button>
     </div>
   </div>
@@ -137,7 +136,13 @@
       <p id="gate-note" class="gate-note"></p>
       <p id="run-error" class="err" role="alert" hidden></p>
 
-      <h3 class="who-h">Who can read your prompt? <span class="sub">Click a party to see what it sees.</span></h3>
+      <div class="who-row"><h3 class="who-h">Who can read your prompt? <span class="sub">Click one.</span></h3><span class="grow"></span>
+        <div class="sp-seg small cmp" role="group" aria-label="Compare"><button type="button" id="cmp-lab" aria-pressed="true">This lab</button><button type="button" id="cmp-api" aria-pressed="false">Normal AI API</button></div></div>
+      <div class="meter" id="meter" aria-live="polite">
+        <div class="mrow"><span class="ml">This lab</span><span class="mbar"><i id="m-lab"></i></span><span class="mv" id="mv-lab"></span></div>
+        <div class="mrow"><span class="ml">Normal AI API</span><span class="mbar bad"><i id="m-api"></i></span><span class="mv" id="mv-api"></span></div>
+        <p class="hint" id="m-note"></p>
+      </div>
       <div class="flow" id="flow" role="tablist" aria-label="View as">
         <button type="button" role="tab" class="node see" data-p="browser" aria-selected="true"><b>Your browser</b><span class="nv">Plaintext</span></button>
         <span class="wirel" aria-hidden="true"><i class="pkt"></i></span>
@@ -153,7 +158,7 @@
       </div>
 
       <div class="break">
-        <h3>Try to break it <span class="sub">Each attack runs the real checks.</span></h3>
+        <h3>Try to break it <span class="sub">Real checks, real attacks.</span></h3>
         <div class="break-b">
           <button type="button" class="btn ghost" id="tamper" title="Flip one byte of the encrypted reply">Tamper with the reply</button>
           <button type="button" class="btn ghost" id="wrongkey" title="Swap in a key the hardware quote does not contain">Use a fake lock</button>
@@ -173,20 +178,20 @@
 </section>
 
 <div class="pl">
-<section class="card trust" aria-labelledby="trust-title">
+<section class="card fold trust" aria-labelledby="trust-title">
   <details><summary><h2 id="trust-title"><svg class="ic" aria-hidden="true"><use href="#i-help"/></svg>What this does not protect</h2></summary>
   <ul class="plain">
-    <li>NEAR AI's gateway still sees metadata: your IP, timing, message sizes, the model, request settings and your API key.</li>
-    <li>You trust the code this page delivers and NEAR AI's key management. Attestation shows what hardware and enclave app ran, not that the app never logs.</li>
-    <li>The Intel verdict comes from Phala's verifier through prompt20.com. NVIDIA's tokens are verified in this page against NVIDIA's keys.</li>
-    <li>The CPU quote and the GPU evidence are linked by the shared nonce, as in NEAR AI's own verifier. Neither vendor attests that link directly.</li>
-    <li>Instances of one model share a signing key, so the key identifies a deployment, not one machine.</li>
-    <li>A downloaded receipt contains the secrets that open its messages. Sharing it shares the prompt.</li>
+    <li>NEAR AI's gateway sees metadata: your IP, timing, sizes, the model and your API key.</li>
+    <li>You trust this page's code and NEAR AI's key handling. Attestation proves what ran, not that nothing is logged.</li>
+    <li>Intel's verdict comes via Phala's verifier and prompt20.com. NVIDIA's is checked here.</li>
+    <li>CPU and GPU proofs are linked only by the shared nonce.</li>
+    <li>One key covers all copies of a model, not one machine.</li>
+    <li>A downloaded receipt can unlock its messages. Sharing it shares the prompt.</li>
   </ul>
   </details>
 </section>
 
-<section class="card" id="checks-card"><h2><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>Every check</h2>
+<section class="card fold" id="checks-card"><details><summary><h2><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>Every check, in technical terms</h2></summary>
   <ul id="proof" class="proof"></ul>
   <div class="scroll" tabindex="0" role="region" aria-label="Reply signatures, scrolls horizontally"><table class="tbl" id="sigs-t"><thead><tr><th scope="col">Call</th><th scope="col">Signed text matches the bytes</th><th scope="col">Signer</th><th scope="col">Result</th></tr></thead><tbody></tbody></table></div>
   <div class="actions">
@@ -194,6 +199,8 @@
     <button type="button" class="btn ghost" id="download"><svg class="ic sm" aria-hidden="true"><use href="#i-down"/></svg>Download the receipt</button>
   </div>
   <p class="hint" id="compose"></p>
+  <p class="hint">Check a receipt without this page: the <a href="https://github.com/edwardtay/private-prompt-lab" rel="noopener">source and a command-line verifier</a> are public, and <code>npm run verify:ask</code> re-checks the recorded question.</p>
+  </details>
 </section>
 
 <section class="card" id="reply-card" hidden><h2><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg>The reply, decrypted in your browser</h2>
@@ -202,11 +209,10 @@
 
 <section id="results" hidden>
   <section class="card"><h2><svg class="ic" aria-hidden="true"><use href="#i-scissors"/></svg>The private prompt edit</h2>
-    <div class="sp-tiles">
+    <div class="sp-tiles n3">
       <div class="vt best"><div class="vt-h"><svg class="ic sm" aria-hidden="true"><use href="#i-scissors"/></svg><span>Tokens per call</span></div><span class="vt-v" id="t-tokens">&nbsp;</span><span class="vt-s" id="t-tokens-s"></span></div>
       <div class="vt"><div class="vt-h"><svg class="ic sm" aria-hidden="true"><use href="#i-coin"/></svg><span>Saving a month</span></div><span class="vt-v" id="t-cost">&nbsp;</span><span class="vt-s" id="t-cost-s"></span></div>
       <div class="vt" id="tests-tile"><div class="vt-h"><svg class="ic sm" aria-hidden="true"><use href="#i-check"/></svg><span>Tests passing</span></div><span class="vt-v" id="t-tests">&nbsp;</span><span class="vt-s" id="t-tests-s"></span></div>
-      <div class="vt"><div class="vt-h"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg><span>Signed replies</span></div><span class="vt-v" id="t-sigs">&nbsp;</span><span class="vt-s" id="t-sigs-s"></span></div>
     </div>
     <div class="diff" id="diff-card"><div><h3>Original</h3><div class="dtext" id="d-old"></div></div><div><h3>Optimised</h3><div class="dtext" id="d-new"></div></div></div>
     <div class="actions"><button type="button" class="btn ghost" id="copy-opt">Copy the optimised prompt</button></div>
@@ -219,13 +225,6 @@
   </section>
 </section>
 
-<section class="card faq" aria-labelledby="faq-title">
-  <h2 id="faq-title"><svg class="ic" aria-hidden="true"><use href="#i-help"/></svg>How the proof works</h2>
-  <div><h3>Does prompt20.com see my prompt or my key?</h3><p>No. Your browser encrypts each message to the model's key, the key named inside the enclave's hardware quote, and sends it to cloud-api.near.ai. NEAR AI's gateway relays only ciphertext, and replies come back encrypted to a one-time key made in this page. The page's Content-Security-Policy only allows connections to NEAR AI, prompt20's own pages and data API, and NVIDIA's public key list. It loads no analytics. Only the public attestation evidence goes through prompt20.com, to reach Intel's and NVIDIA's verifiers.</p></div>
-  <div><h3>What does the proof show?</h3><p>That the model ran in a non-debug Intel TDX enclave with NVIDIA confidential GPUs, that the hardware quote contains this run's fresh random nonce and the model's signing key, that the measured enclave app is the one NEAR AI serves the model from today, that every message was encrypted to that key, and that every reply was signed by it over the exact encrypted request and response bytes. The prompt is sent only after the hardware checks pass.</p></div>
-  <div><h3>What does it not show?</h3><p>It does not prove the optimised prompt behaves the same in every case, only on your test cases, and your must and must-not rules are not signed. Token counts use the Qwen tokenizer, so other models count a few percent differently.</p></div>
-  <div><h3>Can I check a receipt without this page?</h3><p>Yes. The <a href="https://github.com/edwardtay/private-prompt-lab" rel="noopener">source and a command-line verifier</a> are public: <code>npm run verify</code> checks the sample receipt, asking Intel, NVIDIA and NEAR AI again.</p></div>
-</section>
 <footer><a href="/tools/">More Prompt20 tools</a> · <a href="/tools/cost/">AI Cost Calculator</a> · <a href="/tools/models/">Model Hub</a> · <a href="https://github.com/edwardtay/private-prompt-lab" rel="noopener">Source</a></footer>
 </div>
 </main>

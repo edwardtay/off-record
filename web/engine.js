@@ -6,12 +6,11 @@
 
    deps = {
      fetch,                          // fetch implementation
-     recover(message, sig) -> 0x address (EIP-191 personal_sign recovery),
      tdxUrl, gpuUrl                  // Intel TDX quote verifier and NVIDIA NRAS endpoints
    }
 */
 
-import { newClientKeys, encryptTo, openRequestField, decryptWith, verifyEd25519 } from './e2ee.js?v=7';
+import { newClientKeys, encryptTo, openRequestField, decryptWith, verifyEd25519 } from './e2ee.js?v=9';
 
 export const NEARAI = 'https://cloud-api.near.ai/v1';
 const ALGO = 'ed25519';
@@ -244,14 +243,9 @@ export async function checkCall(call, signer, deps) {
   const [hq, hr] = await Promise.all([sha256Hex(call.request), sha256Hex(call.response)]);
   const model = parse(call.request)?.model || '';
   const hashesOk = sig.text === `${hq}:${hr}` || sig.text === `${model}:${hq}:${hr}`;
-  let signerOk = false; let recovered = null;
-  if (sig.signing_algo === 'ed25519') {
-    recovered = strip0x(sig.signing_address);
-    signerOk = !!sig.signature && verifyEd25519(String(sig.text), strip0x(sig.signature), recovered);
-  } else {
-    try { recovered = String(deps.recover(sig.text, sig.signature)).toLowerCase(); } catch { /* bad sig */ }
-    signerOk = !!recovered && recovered === String(sig.signing_address).toLowerCase();
-  }
+  // Every run is Ed25519 (NEAR AI E2EE v2); any other signature kind fails closed.
+  const recovered = sig.signing_algo === 'ed25519' ? strip0x(sig.signing_address) : null;
+  const signerOk = !!recovered && !!sig.signature && verifyEd25519(String(sig.text), strip0x(sig.signature), recovered);
   const attestedOk = !!recovered && strip0x(recovered) === strip0x(signer);
   return { ok: hashesOk && signerOk && attestedOk, hashesOk, signerOk, attestedOk, kind: sig.signature_kind || null, recovered };
 }
