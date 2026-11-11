@@ -80,6 +80,25 @@ export async function fetchAttestation(model, nonce, deps) {
   return body;
 }
 
+const NRAS_JWKS = 'https://nras.attestation.nvidia.com/.well-known/jwks.json';
+const b64urlBytes = (s) => { const b = s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4); const bin = typeof atob === 'function' ? atob(b) : Buffer.from(b, 'base64').toString('binary'); return Uint8Array.from(bin, (c) => c.charCodeAt(0)); };
+
+/** Verify an NVIDIA attestation token (ES384) against NVIDIA's published keys, plus issuer and expiry. */
+async function verifyNvidiaJwt(token, jwks) {
+  try {
+    const [h, p, sig] = String(token).split('.');
+    const header = JSON.parse(new TextDecoder().decode(b64urlBytes(h)));
+    const claims = JSON.parse(new TextDecoder().decode(b64urlBytes(p)));
+    const jwk = (jwks?.keys || []).find((k) => k.kid === header.kid);
+    if (!jwk || header.alg !== 'ES384') return { ok: false, claims, why: 'unknown signing key' };
+    const key = await globalThis.crypto.subtle.importKey('jwk', { kty: 'EC', crv: 'P-384', x: jwk.x, y: jwk.y }, { name: 'ECDSA', namedCurve: 'P-384' }, false, ['verify']);
+    const sigOk = await globalThis.crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-384' }, key, b64urlBytes(sig), new TextEncoder().encode(`${h}.${p}`));
+    // Each check asks NVIDIA again, so the token must be unexpired now.
+    const fresh = typeof claims.exp === 'number' && claims.exp > Date.now() / 1000;
+    return { ok: sigOk && claims.iss === 'https://nras.attestation.nvidia.com' && fresh, claims };
+  } catch (e) { return { ok: false, why: String(e.message || e) }; }
+}
+
 function b64urlJson(s) {
   const b = s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4);
   return JSON.parse(typeof atob === 'function' ? atob(b) : Buffer.from(b, 'base64').toString('binary'));
@@ -105,14 +124,17 @@ export async function vendorChecks(m, deps) {
     out.tdx = { verified: j?.quote?.verified === true, verified_at: j?.verified_at || null };
   } catch (e) { out.tdx = { verified: false, unreachable: true, error: `verifier unreachable (${e.message || e})` }; }
   try {
-    const j = await postJson(deps, deps.gpuUrl, m.nvidia_payload);
-    const claims = Array.isArray(j) && Array.isArray(j[0]) ? b64urlJson(j[0][1].split('.')[1]) : {};
-    const gpus = j && typeof j[1] === 'object' ? Object.values(j[1]).map((t) => b64urlJson(String(t).split('.')[1])) : [];
+    const [j, jwks] = await Promise.all([postJson(deps, deps.gpuUrl, m.nvidia_payload), deps.fetch(deps.jwksUrl || NRAS_JWKS).then((r) => r.json())]);
+    // Every token NVIDIA returns (the platform result and one per GPU) must carry NVIDIA's signature.
+    const overall = Array.isArray(j) && Array.isArray(j[0]) ? await verifyNvidiaJwt(j[0][1], jwks) : { ok: false };
+    const gpuTokens = j && typeof j[1] === 'object' ? await Promise.all(Object.values(j[1]).map((t) => verifyNvidiaJwt(t, jwks))) : [];
+    const claims = overall.claims || {};
     out.gpu = {
-      verified: claims['x-nvidia-overall-att-result'] === true,
+      verified: overall.ok && gpuTokens.length > 0 && gpuTokens.every((g) => g.ok) && claims['x-nvidia-overall-att-result'] === true,
+      signed: overall.ok && gpuTokens.every((g) => g.ok),
       nonce: claims.eat_nonce || null,
-      gpus: gpus.length,
-      noDebug: gpus.length > 0 && gpus.every((g) => g.dbgstat === 'disabled' && g.secboot === true),
+      gpus: gpuTokens.length,
+      noDebug: gpuTokens.length > 0 && gpuTokens.every((g) => g.claims?.dbgstat === 'disabled' && g.claims?.secboot === true),
     };
   } catch (e) { out.gpu = { verified: false, unreachable: true, error: `verifier unreachable (${e.message || e})` }; }
   return out;
@@ -138,7 +160,7 @@ export async function checkAttestation(report, nonce, model, vendor, live) {
   rows.push({ id: 'key-bound', label: 'The quote names the model\'s key', ok: bound, detail: ed ? `Ed25519 ${addr.slice(0, 16)}..., used to sign replies and to encrypt to` : `0x${addr}` });
   rows.push({ id: 'app', label: 'The event log replays to the quote\'s RTMR3', ok: app.ok && app.debug === false, detail: app.ok ? `dstack app ${app.appId}, compose hash ${String(app.composeHash).slice(0, 16)}...${app.debug ? ', DEBUG enclave' : ', not a debug enclave'}` : 'the measured app could not be confirmed' });
   rows.push({ id: 'intel', label: 'Intel TDX quote verifies', ok: !!vendor?.tdx?.verified, unreachable: !!vendor?.tdx?.unreachable, detail: vendor?.tdx?.error || `checked just now with Phala's DCAP verifier` });
-  rows.push({ id: 'nvidia', label: 'NVIDIA attests the GPUs', ok: !!vendor?.gpu?.verified && strip0x(vendor.gpu.nonce) === strip0x(nonce) && vendor.gpu.noDebug, unreachable: !!vendor?.gpu?.unreachable, detail: vendor?.gpu?.error || `${vendor?.gpu?.gpus || 0} GPU${vendor?.gpu?.gpus === 1 ? '' : 's'}, NVIDIA's signed token carries this nonce, debug off, secure boot on` });
+  rows.push({ id: 'nvidia', label: 'NVIDIA attests the GPUs', ok: !!vendor?.gpu?.verified && strip0x(vendor.gpu.nonce) === strip0x(nonce) && vendor.gpu.noDebug, unreachable: !!vendor?.gpu?.unreachable, detail: vendor?.gpu?.error || `${vendor?.gpu?.gpus || 0} GPU${vendor?.gpu?.gpus === 1 ? '' : 's'}, each token's NVIDIA signature checked here, this nonce, debug off, secure boot on` });
   if (live) {
     const sameApp = !!live.app?.ok && live.app.appId === app.appId;
     rows.push({ id: 'same-app', label: 'NEAR AI serves this model from the same enclave app today', ok: sameApp, unreachable: !!live.unreachable, detail: live.unreachable ? 'NEAR AI attestation unreachable' : sameApp ? `app ${app.appId}${live.app.composeHash === app.composeHash ? ', same compose hash' : `, today's instance reports compose hash ${String(live.app.composeHash).slice(0, 16)}...`}` : `today NEAR AI serves app ${live.app?.appId || 'unknown'}` });
