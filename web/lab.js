@@ -1,7 +1,7 @@
 /* Private Prompt Lab page. All checks live in engine.js, shared with the Node verifier.
    Imports carry the release tag so a deploy never mixes a cached old module with new ones. */
-import { runLab, runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=14';
-import { SAMPLE_PROMPT, SAMPLE_TESTS, SAMPLE_ASK } from './sample.js?v=14';
+import { runLab, runAsk, verifyReceipt, fetchAttestation, privacyKind, newNonce, modelAttestation, NEARAI, DEFAULT_MODEL } from './engine.js?v=15';
+import { SAMPLE_PROMPT, SAMPLE_TESTS, SAMPLE_ASK } from './sample.js?v=15';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -343,7 +343,7 @@ async function costLine(rc) {
     for (const c of rc.calls) { const u = JSON.parse(c.response).usage || {}; usd += ((u.prompt_tokens || 0) * pr.input + (u.completion_tokens || 0) * pr.output) / 1e6; }
     if (current?.rc !== rc) return;
     el.hidden = false;
-    el.innerHTML = `This run cost <b>$${usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2)}</b> in NEAR AI credits (${rc.calls.length} call${rc.calls.length === 1 ? '' : 's'}). You can pay with <a href="https://docs.near.ai/cloud/staking-for-inference/overview" target="_blank" rel="noopener">NEAR staking rewards</a>: your stake stays yours.`;
+    el.innerHTML = `Cost <b>$${usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2)}</b> in NEAR AI credits, payable with <a href="https://docs.near.ai/cloud/staking-for-inference/overview" target="_blank" rel="noopener">NEAR staking</a> <button type="button" class="itip" data-tip="${rc.calls.length} call${rc.calls.length === 1 ? '' : 's'}, priced from their real token usage and NEAR AI's published prices. Staking for Inference pays credits from NEAR staking rewards, and the stake stays yours." aria-label="What is this?">i</button>`;
   } catch { /* prices unavailable */ }
 }
 function meter(rc) {
@@ -367,7 +367,7 @@ function meter(rc) {
     const lab = labLeak === 0 ? 0 : items.filter((it) => readable(call.request).includes(it.text)).length;
     $('sens-chips').innerHTML = `<b class="okc">${lab} of ${items.length}</b> readable here, <b class="badc">${items.length} of ${items.length}</b> in a standard API: ` + Object.entries(byType).map(([t, n]) => `<span class="chip">${esc(t)}${n > 1 ? ` x${n}` : ''}</span>`).join('');
   }
-  $('m-note').textContent = 'What the receiving service can read. This lab: measured on the real request. Standard API: the same message in the usual format (illustration). Metadata is visible in both.';
+  $('m-note').textContent = '';
   return normal;
 }
 $('replay-flow').addEventListener('click', playFlow);
@@ -554,3 +554,32 @@ $('download').addEventListener('click', () => {
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 $('copy-opt').addEventListener('click', async () => { if (current?.rc.optimized) { try { await navigator.clipboard.writeText(current.rc.optimized); $('copy-opt').textContent = 'Copied'; setTimeout(() => { $('copy-opt').textContent = 'Copy the optimised prompt'; }, 1500); } catch { /* clipboard blocked */ } } });
+
+/* Tooltips: any [data-tip] element. Hover or focus shows it; tapping an (i) toggles it. Kept inside the viewport. */
+const tipBox = Object.assign(document.createElement('div'), { id: 'tipbox', className: 'tipbox', hidden: true });
+tipBox.setAttribute('role', 'tooltip');
+document.body.append(tipBox);
+let tipFor = null;
+function showTip(el) {
+  tipFor = el; tipBox.textContent = el.dataset.tip; tipBox.hidden = false;
+  el.setAttribute('aria-describedby', 'tipbox');
+  const r = el.getBoundingClientRect(); const w = Math.min(300, window.innerWidth - 24);
+  tipBox.style.width = `${w}px`;
+  const left = Math.max(12, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 12));
+  const h = tipBox.offsetHeight; const below = r.bottom + 8 + h < window.innerHeight;
+  tipBox.style.left = `${left}px`; tipBox.style.top = `${below ? r.bottom + 8 : Math.max(8, r.top - h - 8)}px`;
+}
+function hideTip() { if (tipFor) tipFor.removeAttribute('aria-describedby'); tipFor = null; tipBox.hidden = true; }
+document.addEventListener('pointerover', (e) => { if (e.pointerType !== 'mouse') return; const el = e.target.closest('[data-tip]'); if (el) showTip(el); });
+document.addEventListener('pointerout', (e) => { if (e.pointerType === 'mouse' && e.target.closest('[data-tip]') && !e.relatedTarget?.closest?.('[data-tip]')) hideTip(); });
+document.addEventListener('focusin', (e) => { const el = e.target.closest('[data-tip]'); if (el && el.matches(':focus-visible')) showTip(el); });
+document.addEventListener('focusout', () => hideTip());
+document.addEventListener('click', (e) => {
+  const it = e.target.closest('.itip');
+  if (it) { e.preventDefault(); e.stopPropagation(); showTip(it); return; }
+  const g = e.target.closest('#gate li[data-tip]');
+  if (g) { showTip(g); return; }
+  hideTip();
+}, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTip(); });
+window.addEventListener('scroll', hideTip, { passive: true });

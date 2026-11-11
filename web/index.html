@@ -8,10 +8,10 @@
 <meta name="author" content="Edward Tay">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=12">
 <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Prompt20","item":"https://prompt20.com/"},{"@type":"ListItem","position":2,"name":"Tools","item":"https://prompt20.com/tools/"},{"@type":"ListItem","position":3,"name":"Private Prompt Lab","item":"https://prompt20.com/tools/private-prompt/"}]},{"@type":"WebApplication","name":"Private Prompt Lab","url":"https://prompt20.com/tools/private-prompt/","applicationCategory":"DeveloperApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Send a sensitive prompt to an AI model in a NEAR AI Cloud TEE, encrypted in the browser to the key in its Intel TDX quote, and verify the TDX quote, NVIDIA GPU attestation and every signed reply in the browser.","author":{"@type":"Person","name":"Edward Tay"}}]}</script>
 <script src="/tools/models-data.js" defer></script>
-<script type="module" src="lab.js?v=14"></script>
+<script type="module" src="lab.js?v=15"></script>
 </head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
 <symbol id="i-lab" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><path d="M8.5 15.5h2M12 15.5h3.5M8.5 18h5"/></symbol>
@@ -31,7 +31,7 @@
 <header class="site-header"><div class="site-brand">
     <div class="site-brand-inner">
       <a class="site-brand-link" href="https://prompt20.com" aria-label="Prompt20 home">
-        <svg class="site-brand-mark" width="40" height="40" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="p20mark" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#d35400"/><stop offset="100%" style="stop-color:#e74c3c"/></linearGradient></defs><rect width="32" height="32" rx="6" fill="url(#p20mark)"/><text x="16" y="22" text-anchor="middle" fill="white" font-family="monospace" font-weight="bold" font-size="16">20</text></svg>
+        <svg class="site-brand-mark" width="40" height="40" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="p20mark" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#d35400"/><stop offset="100%" style="stop-color:#e74c3c"/></linearGradient></defs><rect width="32" height="32" rx="6" fill="url(#p20mark)"/><text x="16" y="22" text-anchor="middle" fill="white" font-family="monospace" font-weight="bold" font-size="14">AI</text></svg>
         <span class="site-brand-text">Prompt<span>20</span></span>
       </a>
     </div>
@@ -56,7 +56,7 @@
   <div class="sp-intro">
     <p class="sp-crumb"><a href="/tools/">Tools</a> / Private Prompt Lab</p>
     <div class="sp-top"><span class="sp-icon"><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg></span><h1>Private Prompt Lab</h1></div>
-    <p class="sp-lede">Send a message only a sealed chip can read. Your browser checks the chip, locks the message to it, and verifies the reply.</p>
+    <p class="sp-lede">Send a message only a sealed chip can read, and check the proof yourself. <button type="button" class="itip" data-tip="Your browser checks the chip's hardware proof (Intel and NVIDIA), encrypts the message to the key inside that proof, and verifies the chip's signature on the reply. NEAR AI's servers only relay ciphertext." aria-label="What is this?">i</button></p>
   </div>
 
   <div class="sp-ctrl">
@@ -67,7 +67,7 @@
     </div>
 
     <div id="p-check" role="tabpanel" aria-labelledby="tab-check" class="panel-in">
-      <p class="hint">Recorded runs with made-up data, re-checked live. No key needed.</p>
+      <p class="hint">Recorded runs, re-checked live. <button type="button" class="itip" data-tip="Made-up data. Each recorded proof is checked again now, against Intel, NVIDIA and NEAR AI. No key needed." aria-label="What is this?">i</button></p>
       <button type="button" class="sp-cta" id="check-ask"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg>A private health question</button>
       <button type="button" class="sp-cta ghost" id="check-careful"><svg class="ic sm" aria-hidden="true"><use href="#i-doc"/></svg>A company prompt, shortened</button>
       <button type="button" class="sp-cta ghost" id="check-extreme"><svg class="ic sm" aria-hidden="true"><use href="#i-scissors"/></svg>Shortened too far: caught</button>
@@ -84,9 +84,9 @@
         <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-...">
         <span class="hint">Never stored. <a href="https://cloud.near.ai" target="_blank" rel="noopener">Get a key</a> · <a href="https://nearbuilders.org/join" target="_blank" rel="noopener">$10 free credits</a></span>
       </label>
-      <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg>Enclave model</span>
+      <label class="cf" for="model"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg>Enclave model</span>
         <select id="model"><option>Qwen/Qwen3.8-27B</option><option>Qwen/Qwen3.6-35B-A3B-FP8</option><option>Qwen/Qwen3-VL-30B-A3B-Instruct</option><option>deepseek-ai/DeepSeek-V4.1-Flash-1017</option><option>z-ai/glm-5.3-flash</option><option>Qwen/Qwen3.8-27B-abliterated</option><option>deepseek-ai/DeepSeek-V4.1-Flash-1017-abliterated</option></select>
-        <span class="hint" id="model-hint">Only models in their own TEE.</span>
+        <span class="hint" id="model-hint">Private models only. <button type="button" class="itip" data-tip="Only 12 of NEAR AI's 63 models run in their own TEE (a sealed enclave). The rest, including Claude, GPT and Gemini, go to outside providers. The Models tab checks each one live." aria-label="What is this?">i</button></span>
       </label>
 
       <div id="ask-fields" class="panel-in">
@@ -102,15 +102,15 @@
           <span class="hint" id="prompt-count"></span>
         </label>
         <details class="cf tests-box"><summary class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-check"/></svg>Test cases <span id="test-count" class="sub"></span></summary>
-          <p class="hint">Both prompts answer each message. Separate alternatives with |.</p>
+          <p class="hint">Both prompts answer each message. <button type="button" class="itip" data-tip="Must and must-not are phrases the reply should or should not contain. Separate alternatives with |. A regression is a test the original passes and the shortened prompt fails." aria-label="What is this?">i</button></p>
           <div id="tests" class="tests"></div>
           <button type="button" class="btn ghost" id="add-test">Add a test case</button>
         </details>
-        <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-scissors"/></svg>How hard to cut</span>
+        <label class="cf" for="mode"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-scissors"/></svg>How hard to cut <button type="button" class="itip" data-tip="Careful keeps every rule. Extreme forces 40 words, to show that the tests catch what breaks." aria-label="What is this?">i</button></span>
           <select id="mode"><option value="careful">Careful: keep every rule</option><option value="aggressive">Aggressive: about a third</option><option value="extreme">Extreme: 40 words</option></select>
         </label>
         <div class="cf-2">
-          <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-coin"/></svg>Deployed on</span><select id="deploy"><option value="">Loading prices</option></select></label>
+          <label class="cf" for="deploy"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-coin"/></svg>Deployed on <button type="button" class="itip" data-tip="Your production model, to price the tokens saved per month." aria-label="What is this?">i</button></span><select id="deploy"><option value="">Loading prices</option></select></label>
           <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-list"/></svg>Calls a month</span><input type="number" id="calls" min="1" step="1000" value="1000000" inputmode="numeric"></label>
         </div>
       </div>
@@ -118,7 +118,7 @@
     </div>
 
     <div id="p-models" role="tabpanel" aria-labelledby="tab-models" class="panel-in" hidden>
-      <p class="hint">Which NEAR AI models really run in a sealed chip? Checked live, no key.</p>
+      <p class="hint">Which models run in a sealed chip? <button type="button" class="itip" data-tip="Asks NEAR AI for every model's hardware proof, live, with no key. Models at outside providers have none." aria-label="What is this?">i</button></p>
       <button type="button" class="sp-cta" id="scan"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg>Check every model now</button>
     </div>
   </div>
@@ -127,32 +127,32 @@
     <div id="stage-run">
       <h2 class="sp-k"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg><span id="stage-title">Checking a recorded run</span><span class="grow"></span><span id="adopt" class="vbadge" hidden></span><span id="verdict" class="vbadge">Checking</span></h2>
       <ol class="gate" id="gate" aria-label="Send gate">
-        <li data-g="enclave" title="Enclave checked: TEE on Intel TDX with NVIDIA GPUs, RTMR3 replay, Intel signature chain checked here, Intel TCB status and NVIDIA verification">Real secure hardware</li>
-        <li data-g="fresh" title="Fresh challenge: a random nonce made when this run was sent is inside the hardware quote">Proof made for this run</li>
-        <li data-g="key" title="Key bound: the quote names the model's Ed25519 key">Key matches the chip</li>
-        <li data-g="enc" title="Encrypted to key: NEAR AI E2EE v2 to the attested key">Locked before sending</li>
-        <li data-g="sig" title="Reply signed: Ed25519 signature over the exact encrypted bytes">Reply signed by it</li>
-        <li data-g="shown" title="Shown = signed: what this page shows is what was signed">Display matches proof</li>
+        <li data-g="enclave" tabindex="0" data-tip="The model runs inside a sealed Intel TDX enclave with NVIDIA confidential GPUs. Intel's signature is checked in this page; NVIDIA's tokens too.">Real secure hardware</li>
+        <li data-g="fresh" tabindex="0" data-tip="A random number made for this run is inside the hardware proof, so an old proof cannot be replayed.">Proof made for this run</li>
+        <li data-g="key" tabindex="0" data-tip="The hardware proof names the chip's own key. Only that chip can unlock the message.">Key matches the chip</li>
+        <li data-g="enc" tabindex="0" data-tip="Your message is encrypted in your browser to that key before it leaves (X25519, XChaCha20-Poly1305).">Locked before sending</li>
+        <li data-g="sig" tabindex="0" data-tip="The chip signs every reply over the exact encrypted bytes. A changed byte breaks the signature.">Reply signed by it</li>
+        <li data-g="shown" tabindex="0" data-tip="What this page shows decrypts from those signed bytes. Nothing on screen is taken on trust.">Display matches proof</li>
       </ol>
       <p id="gate-note" class="gate-note" role="status" aria-live="polite"></p>
       <p id="run-error" class="err" role="alert" hidden></p>
 
-      <div class="who-row"><h3 class="who-h">Who can read your prompt? <span class="sub">Click one.</span></h3><span class="grow"></span>
+      <div class="who-row"><h3 class="who-h">Who can read your prompt? <button type="button" class="itip" data-tip="Click a party to see exactly what it receives. The gateway view is the real request NEAR AI got. Switch to Standard AI API to compare." aria-label="What is this?">i</button></h3><span class="grow"></span>
         <div class="sp-seg small cmp" role="group" aria-label="Compare"><button type="button" id="cmp-lab" aria-pressed="true">This lab</button><button type="button" id="cmp-api" aria-pressed="false">Standard AI API</button></div></div>
       <div class="meter" id="meter">
-        <div class="mrow"><span class="ml">This lab</span><span class="mbar"><i id="m-lab"></i></span><span class="mv" id="mv-lab"></span></div>
-        <div class="mrow"><span class="ml">Standard API</span><span class="mbar bad"><i id="m-api"></i></span><span class="mv" id="mv-api"></span></div>
-        <div class="sens-row" id="sens-row" hidden><span class="ml">Sensitive items</span><span id="sens-chips" class="chips"></span></div>
+        <div class="mrow" data-tip="Characters of your message the receiving service can read, measured on the real request bytes." tabindex="0"><span class="ml">This lab</span><span class="mbar"><i id="m-lab"></i></span><span class="mv" id="mv-lab"></span></div>
+        <div class="mrow" data-tip="The same message in a standard AI API request (an illustration). The provider reads all of it. Metadata (IP, timing, sizes) is visible in both." tabindex="0"><span class="ml">Standard API</span><span class="mbar bad"><i id="m-api"></i></span><span class="mv" id="mv-api"></span></div>
+        <div class="sens-row" id="sens-row" hidden><span class="ml">Sensitive items <button type="button" class="itip" data-tip="A second encrypted call asks the chip itself to list sensitive items in your message. Only items found verbatim are kept and highlighted." aria-label="What is this?">i</button></span><span id="sens-chips" class="chips"></span></div>
         <p class="hint" id="m-note"></p>
         <p class="hint cost" id="cost-line" hidden></p>
       </div>
       <div class="flow" id="flow" role="group" aria-label="See what each party sees">
-        <button type="button" class="node see" data-p="browser" aria-pressed="true"><b>Your browser</b><span class="nv">Plaintext</span></button>
+        <button type="button" class="node see" data-p="browser" data-tip="You type it here. It is encrypted here, after the proof checks pass." aria-pressed="true"><b>Your browser</b><span class="nv">Plaintext</span></button>
         <span class="wirel" aria-hidden="true"><i class="pkt"></i></span>
-        <button type="button" class="node cipher" data-p="gateway" aria-pressed="false"><b>NEAR AI gateway</b><span class="nv">Ciphertext</span></button>
+        <button type="button" class="node cipher" data-p="gateway" data-tip="NEAR AI's gateway relays the request. It sees ciphertext plus metadata: model, sizes, timing, IP and API key." aria-pressed="false"><b>NEAR AI gateway</b><span class="nv">Ciphertext</span></button>
         <span class="wirel" aria-hidden="true"><i class="pkt"></i></span>
-        <button type="button" class="node see enclave" data-p="enclave" aria-pressed="false"><b>The enclave</b><span class="nv">Plaintext</span></button>
-        <button type="button" class="node none off" data-p="prompt20" aria-pressed="false"><b>prompt20.com</b><span class="nv">Not on the path</span></button>
+        <button type="button" class="node see enclave" data-p="enclave" data-tip="The only place that can decrypt: the chip holding the key from the hardware proof." aria-pressed="false"><b>The enclave</b><span class="nv">Plaintext</span></button>
+        <button type="button" class="node none off" data-p="prompt20" data-tip="This site is not on the path. Your key and message go straight from your browser to NEAR AI." aria-pressed="false"><b>prompt20.com</b><span class="nv">Not on the path</span></button>
       </div>
       <div class="lens">
         <div class="lens-h"><span id="lens-title">What your browser sees</span><span class="grow"></span><button type="button" class="link" id="replay-flow">Replay</button></div>
@@ -161,13 +161,13 @@
       </div>
 
       <div class="break">
-        <h3>Try to break it</h3>
+        <h3>Try to break it <button type="button" class="itip" data-tip="Each button changes a copy of the proof and runs the real checks on it. The steps that catch it flash red." aria-label="What is this?">i</button></h3>
         <div class="break-b">
-          <button type="button" class="btn ghost" id="tamper" title="Flip one byte of the encrypted reply">Tamper with the reply</button>
-          <button type="button" class="btn ghost" id="wrongkey" title="Swap in a key the hardware quote does not contain">Use a fake lock</button>
-          <button type="button" class="btn ghost" id="forge" title="Rewrite the hardware quote so it names the attacker's key">Forge the proof</button>
-          <button type="button" class="btn ghost" id="replay" title="Offer the old hardware quote against a new random challenge">Replay an old proof</button>
-          <button type="button" class="btn ghost" id="outside" title="anthropic/claude-sonnet-5-5 on NEAR AI runs at an outside provider">Send to Claude (not private)</button>
+          <button type="button" class="btn ghost" id="tamper" data-tip="Flip one byte of the encrypted reply">Tamper with the reply</button>
+          <button type="button" class="btn ghost" id="wrongkey" data-tip="Swap in a key the hardware quote does not contain">Use a fake lock</button>
+          <button type="button" class="btn ghost" id="forge" data-tip="Rewrite the hardware quote so it names the attacker's key">Forge the proof</button>
+          <button type="button" class="btn ghost" id="replay" data-tip="Offer the old hardware quote against a new random challenge">Replay an old proof</button>
+          <button type="button" class="btn ghost" id="outside" data-tip="anthropic/claude-sonnet-5-5 on NEAR AI runs at an outside provider">Send to Claude (not private)</button>
         </div>
         <ul id="break-out" class="break-out"></ul>
       </div>
