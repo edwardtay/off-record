@@ -24,6 +24,7 @@ const store = {
 const tabs = ['run', 'check', 'models'];
 function showTab(t) {
   for (const x of tabs) { $(`tab-${x}`).setAttribute('aria-selected', String(x === t)); $(`p-${x}`).hidden = x !== t; }
+  $('stage-run').hidden = t === 'models'; $('stage-models').hidden = t !== 'models';
   if (t === 'models' && !scanned) scan();
 }
 for (const t of tabs) $(`tab-${t}`).addEventListener('click', () => showTab(t));
@@ -44,9 +45,10 @@ function testRow(t = { input: '', must: [], mustNot: [] }) {
     <label>Reply must include<input type="text" class="must" value="${esc((t.must || []).join(', '))}" placeholder="30 days | 30-day, - Nova"></label>
     <label>Reply must not include<input type="text" class="mustnot" value="${esc((t.mustNot || []).join(', '))}"></label>
     <button type="button" class="btn ghost rm" aria-label="Remove this test case">Remove</button>`;
-  d.querySelector('.rm').addEventListener('click', () => d.remove());
-  $('tests').append(d);
+  d.querySelector('.rm').addEventListener('click', () => { d.remove(); testCount(); });
+  $('tests').append(d); testCount();
 }
+function testCount() { $('test-count').textContent = `(${$('tests').children.length})`; }
 const split = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
 const readTests = () => [...$('tests').children].map((d) => ({ input: d.querySelector('textarea').value.trim(), must: split(d.querySelector('.must').value), mustNot: split(d.querySelector('.mustnot').value) })).filter((t) => t.input);
 function loadSample() { $('prompt').value = SAMPLE_PROMPT; $('tests').innerHTML = ''; SAMPLE_TESTS.forEach(testRow); promptCount(); }
@@ -120,7 +122,7 @@ $('model').addEventListener('focus', () => { if (!scanned) scan(); }, { once: tr
 /* Run */
 const STEPS = { attest: 0, vendor: 1, optimize: 2, tests: 3 };
 function stepUI(id, msg) {
-  const ol = $('steps'); ol.hidden = false;
+  const ol = $('steps'); ol.hidden = false; $('proof').innerHTML = '';
   const idx = STEPS[id];
   [...ol.children].forEach((li, i) => { li.className = i < idx ? 'done' : ''; });
   if (!ol.children[idx]) { const li = document.createElement('li'); ol.append(li); }
@@ -132,7 +134,10 @@ $('run').addEventListener('click', async () => {
   if (!key) { err.textContent = 'Add a NEAR AI key first. Or open "Check a run" to verify the recorded sample with no key.'; err.hidden = false; return; }
   if (prompt.length < 40) { err.textContent = 'Paste a system prompt of at least a few sentences.'; err.hidden = false; return; }
   if (!tests.length) { err.textContent = 'Add at least one test case.'; err.hidden = false; return; }
-  $('run').disabled = true; $('steps').innerHTML = '';
+  $('run').disabled = true; $('steps').innerHTML = ''; showTab('run');
+  $('stage-title').textContent = 'Running in the enclave'; $('verdict').className = 'vbadge'; $('verdict').textContent = 'Running';
+  for (const id of ['t-tokens', 't-cost', 't-tests', 't-sigs']) $(id).innerHTML = '&nbsp;';
+  for (const id of ['t-tokens-s', 't-cost-s', 't-tests-s', 't-sigs-s']) $(id).textContent = '';
   try {
     const rc = await runLab({ key, model: $('model').value, prompt, tests, onStep: stepUI }, deps);
     stepUI('tests', 'Checking every signature');
@@ -147,22 +152,26 @@ $('run').addEventListener('click', async () => {
 
 /* Check a receipt */
 async function checkReceipt(rc, note) {
-  const err = $('check-error'); err.hidden = true;
+  const err = $('run-error'); err.hidden = true; $('steps').hidden = true;
+  $('stage-title').textContent = 'Checking with Intel, NVIDIA and NEAR AI'; $('verdict').className = 'vbadge'; $('verdict').textContent = 'Checking';
   try {
     if (!rc || !rc.attestation || !Array.isArray(rc.calls)) throw new Error('That file is not a Private Prompt Lab receipt.');
     render(rc, await verifyReceipt(rc, deps), note);
   } catch (e) { err.textContent = e.message; err.hidden = false; }
 }
 let sample = null;
-$('check-sample').addEventListener('click', async () => {
+async function checkSample() {
   $('check-sample').disabled = true;
-  try { sample = sample || await (await fetch('sample-run.json')).json(); await checkReceipt(structuredClone(sample), 'Recorded sample run, checked again in your browser'); }
-  catch (e) { $('check-error').textContent = `Could not load the sample: ${e.message}`; $('check-error').hidden = false; }
+  try { sample = sample || await (await fetch('sample-run.json')).json(); await checkReceipt(structuredClone(sample), 'Recorded sample run'); }
+  catch (e) { $('run-error').textContent = `Could not load the sample: ${e.message}`; $('run-error').hidden = false; }
   $('check-sample').disabled = false;
-});
+}
+$('check-sample').addEventListener('click', checkSample);
+// App-like first view: the stage shows a real recorded run, checked live, before any input.
+checkSample();
 $('receipt-file').addEventListener('change', async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
-  try { await checkReceipt(JSON.parse(await f.text()), `Receipt file ${f.name}`); } catch { $('check-error').textContent = 'That file is not valid JSON.'; $('check-error').hidden = false; }
+  try { await checkReceipt(JSON.parse(await f.text()), `Receipt file ${f.name}`); } catch { $('run-error').textContent = 'That file is not valid JSON.'; $('run-error').hidden = false; }
   ev.target.value = '';
 });
 fetch('sample-run.json', { method: 'HEAD' }).then((r) => { const d = r.headers.get('last-modified'); if (d) $('sample-date').textContent = `NEAR AI Cloud on ${new Date(d).toUTCString().slice(5, 16)}`; }).catch(() => {});
@@ -192,9 +201,11 @@ function render(rc, v, note) {
   current = { rc, v, note };
   $('results').hidden = false;
   const vd = $('verdict');
-  vd.className = `verdict ${v.ok ? 'ok' : 'bad'}`;
+  vd.className = `vbadge ${v.ok ? 'ok' : 'bad'}`;
+  vd.textContent = v.ok ? 'VERIFIED' : 'NOT VERIFIED';
   const why = v.ok ? '' : v.unreachable ? ' · a verifier could not be reached, press Check again' : '';
-  vd.innerHTML = `${v.ok ? 'VERIFIED' : 'NOT VERIFIED'}<small>${esc(note || 'This run')} · ${esc(rc.model)} · ${esc(new Date(rc.created).toUTCString())}${why}</small>`;
+  $('stage-title').textContent = `${note || 'This run'} · ${rc.model} · ${new Date(rc.created).toUTCString().slice(5, 22)} UTC${why}`;
+  $('steps').hidden = true;
 
   const t = v.tokens;
   const pct = t.original ? Math.round((t.savedPerCall / t.original) * 100) : 0;
@@ -223,7 +234,6 @@ function render(rc, v, note) {
   $('proof').innerHTML = rows.map((r) => `<li>${pill(r.ok)}<div>${esc(r.label)}<div class="why">${esc(r.detail)}</div></div></li>`).join('');
   $('sigs-t').tBodies[0].innerHTML = v.calls.map((c) => `<tr><td>${esc(c.role.replace(/^test-(\d+)-/, (_, n) => `Test ${Number(n) + 1}, `))}</td><td>${pill(c.hashesOk, 'Yes', 'No')}</td><td class="mono-addr">${esc(c.recovered || 'none')}${c.kind ? ` <span class="hint">${esc(c.kind)}</span>` : ''}</td><td>${pill(c.ok)}</td></tr>`).join('');
   $('compose').textContent = v.att.composeHash ? `Enclave app ${v.att.appId}, compose hash ${v.att.composeHash}, signing key ${v.att.signer}. Pass and fail are recomputed from the signed replies; the must and must-not rules are yours.` : '';
-  $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 $('tamper').addEventListener('click', async () => {

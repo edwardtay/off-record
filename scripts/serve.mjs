@@ -1,5 +1,5 @@
 // Run the page locally: http://localhost:8787/tools/private-prompt/
-// Serves web/, fetches the shared prompt20 assets (tool.css, models-data.js, favicon) from
+// Serves web/, fetches the shared prompt20 assets (tool.css, splash.css, models-data.js, favicon) from
 // prompt20.com, and passes attestation evidence to Intel's and NVIDIA's verifiers, as the
 // production nginx does. No key or prompt ever reaches this server.
 import { createServer } from 'node:http';
@@ -32,7 +32,7 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream' }).end(await readFile(file));
       return;
     }
-    if (['/tools/tool.css', '/tools/models-data.js', '/favicon.svg'].includes(url.pathname)) {
+    if (['/tools/tool.css', '/tools/splash.css', '/tools/models-data.js', '/favicon.svg'].includes(url.pathname)) {
       const r = await fetch(`https://prompt20.com${url.pathname}`);
       res.writeHead(r.status, { 'content-type': TYPES[extname(url.pathname)] }).end(Buffer.from(await r.arrayBuffer()));
       return;

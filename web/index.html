@@ -8,11 +8,11 @@
 <meta name="author" content="Edward Tay">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="style.css?v=1">
+<link rel="stylesheet" href="/tools/tool.css"><link rel="stylesheet" href="/tools/splash.css"><link rel="stylesheet" href="style.css?v=2">
 <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Prompt20","item":"https://prompt20.com/"},{"@type":"ListItem","position":2,"name":"Tools","item":"https://prompt20.com/tools/"},{"@type":"ListItem","position":3,"name":"Private Prompt Lab","item":"https://prompt20.com/tools/private-prompt/"}]},{"@type":"WebApplication","name":"Private Prompt Lab","url":"https://prompt20.com/tools/private-prompt/","applicationCategory":"DeveloperApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Optimise a system prompt inside a NEAR AI Cloud TEE, test it on your own cases, and verify the Intel TDX quote, NVIDIA GPU attestation and every reply signature in the browser.","author":{"@type":"Person","name":"Edward Tay"}},{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Does prompt20.com see my prompt or my key?","acceptedAnswer":{"@type":"Answer","text":"No. The page sends your key and prompt from your browser straight to cloud-api.near.ai. The page's Content-Security-Policy only allows connections to NEAR AI, prompt20's own pages and data API, and page-view analytics. Only the public attestation evidence goes through prompt20.com, to reach Intel's and NVIDIA's verifiers."}},{"@type":"Question","name":"What does the proof show?","acceptedAnswer":{"@type":"Answer","text":"That the model ran in a non-debug Intel TDX enclave with NVIDIA confidential GPUs, that the hardware quote contains this run's fresh random nonce and the model's signing key, that the measured enclave app is the one NEAR AI serves the model from today, and that every reply was signed by that key over the exact request and response bytes. The prompt is sent only after the hardware checks pass."}},{"@type":"Question","name":"What does it not show?","acceptedAnswer":{"@type":"Answer","text":"It does not prove the optimised prompt behaves the same in every case, only on your test cases, and your must and must-not rules are not signed. Token counts use the Qwen tokenizer, so other models count a few percent differently."}}]}]}</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js" integrity="sha512-bLwLr3lzJN1cvtbClBMhKDyaD0uocWmphiqO8v0w3/z/XqUwzkM00gZq7BV3dQS9mQu0rarZMTsxlcnIHszElA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="/tools/models-data.js" defer></script>
-<script type="module" src="lab.js?v=2"></script>
+<script type="module" src="lab.js?v=3"></script>
 <script defer src="https://umami.lever-labs.com/script.js" data-website-id="92b05d79-fbac-42d1-b22e-5e3ab758f41b"></script>
 </head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -52,105 +52,107 @@
   </nav>
 </header>
 
-<main id="main" class="pl">
-<section class="intro">
-  <p class="crumb"><a href="/tools/">Tools</a> / Private Prompt Lab</p>
-  <div class="title"><span class="ticon"><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg></span><h1>Private Prompt Lab</h1></div>
-  <p class="lede">Shorten a system prompt inside a sealed GPU enclave on NEAR AI Cloud, run your own test cases on both versions, and check the hardware proof in your browser.</p>
-  <div class="tabs" role="tablist" aria-label="Lab mode">
-    <button type="button" role="tab" id="tab-run" aria-controls="p-run" aria-selected="true">Optimise a prompt</button>
-    <button type="button" role="tab" id="tab-check" aria-controls="p-check" aria-selected="false">Check a run</button>
-    <button type="button" role="tab" id="tab-models" aria-controls="p-models" aria-selected="false">Private models</button>
+<main id="main">
+<section class="sp-hero" aria-label="Private Prompt Lab">
+  <div class="sp-intro">
+    <p class="sp-crumb"><a href="/tools/">Tools</a> / Private Prompt Lab</p>
+    <div class="sp-top"><span class="sp-icon"><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg></span><h1>Private Prompt Lab</h1></div>
+    <p class="sp-lede">Shorten a system prompt inside a GPU enclave on NEAR AI Cloud, test both versions, and check the hardware proof here.</p>
+    <div class="sp-chips sp-hide-m"><span class="sp-chip"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg>Intel TDX</span><span class="sp-chip"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg>NVIDIA GPUs</span><span class="sp-chip"><svg class="ic sm" aria-hidden="true"><use href="#i-key"/></svg>Key stays here</span></div>
+  </div>
+
+  <div class="sp-ctrl">
+    <div class="sp-seg" role="tablist" aria-label="Lab mode">
+      <button type="button" role="tab" id="tab-run" aria-controls="p-run" aria-selected="true">Optimise</button>
+      <button type="button" role="tab" id="tab-check" aria-controls="p-check" aria-selected="false">Check a run</button>
+      <button type="button" role="tab" id="tab-models" aria-controls="p-models" aria-selected="false">Models</button>
+    </div>
+
+    <div id="p-run" role="tabpanel" aria-labelledby="tab-run" class="panel-in">
+      <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-key"/></svg>NEAR AI key</span>
+        <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-...">
+        <span class="hint"><a href="https://cloud.near.ai" target="_blank" rel="noopener">Get a key</a> · <a href="https://nearbuilders.org/join" target="_blank" rel="noopener">$10 free credits</a> · <label class="inline"><input type="checkbox" id="remember"> Remember</label></span>
+      </label>
+      <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg>Enclave model</span>
+        <select id="model"><option value="Qwen/Qwen3.8-27B">Qwen/Qwen3.8-27B</option></select>
+        <span class="hint" id="model-hint">Only models with their own TEE.</span>
+      </label>
+      <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-doc"/></svg>System prompt <span class="grow"></span><button type="button" class="link" id="load-sample">Sample</button></span>
+        <textarea id="prompt" rows="6" spellcheck="false"></textarea>
+        <span class="hint" id="prompt-count"></span>
+      </label>
+      <details class="cf tests-box"><summary class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-check"/></svg>Test cases <span id="test-count" class="sub"></span></summary>
+        <p class="hint">Both prompts answer each message. Separate alternatives with |.</p>
+        <div id="tests" class="tests"></div>
+        <button type="button" class="btn ghost" id="add-test">Add a test case</button>
+      </details>
+      <div class="cf-2">
+        <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-coin"/></svg>Deployed on</span><select id="deploy"><option value="">Loading prices</option></select></label>
+        <label class="cf"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-list"/></svg>Calls a month</span><input type="number" id="calls" min="1" step="1000" value="1000000" inputmode="numeric"></label>
+      </div>
+      <button type="button" class="sp-cta" id="run"><svg class="ic sm" aria-hidden="true"><use href="#i-play"/></svg>Optimise in the enclave</button>
+    </div>
+
+    <div id="p-check" role="tabpanel" aria-labelledby="tab-check" class="panel-in" hidden>
+      <p class="hint">A receipt holds the exact bytes of every request and reply, their signatures and the hardware attestation. Checking one needs no key.</p>
+      <button type="button" class="sp-cta" id="check-sample"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg>Check the recorded sample</button>
+      <label class="sp-cta ghost file">Open a receipt file<input type="file" id="receipt-file" accept="application/json,.json"></label>
+      <p class="hint">The sample used the fictional Northwind Pay prompt and ran on <span id="sample-date">NEAR AI Cloud</span>.</p>
+    </div>
+
+    <div id="p-models" role="tabpanel" aria-labelledby="tab-models" class="panel-in" hidden>
+      <p class="hint">NEAR AI Cloud runs some models in its own TEEs and passes others to outside providers. This asks NEAR AI for every model's attestation, live, with no key.</p>
+      <button type="button" class="sp-cta" id="scan"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg>Check every model now</button>
+    </div>
+
+    <p class="sp-status"><svg class="ic sm" aria-hidden="true"><use href="#i-lab"/></svg> Your key and prompt go from this browser to NEAR AI. Only public attestation evidence passes through prompt20.com.</p>
+  </div>
+
+  <div class="sp-stage" aria-live="polite">
+    <div id="stage-run">
+      <h2 class="sp-k"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg><span id="stage-title">Checking the recorded sample run</span><span class="grow"></span><span id="verdict" class="vbadge">Checking</span></h2>
+      <div class="sp-tiles">
+        <div class="vt best"><div class="vt-h"><svg class="ic sm" aria-hidden="true"><use href="#i-scissors"/></svg><span>Tokens per call</span></div><span class="vt-v" id="t-tokens">&nbsp;</span><span class="vt-s" id="t-tokens-s"></span></div>
+        <div class="vt"><div class="vt-h"><svg class="ic sm" aria-hidden="true"><use href="#i-coin"/></svg><span>Saving a month</span></div><span class="vt-v" id="t-cost">&nbsp;</span><span class="vt-s" id="t-cost-s"></span></div>
+        <div class="vt"><div class="vt-h"><svg class="ic sm" aria-hidden="true"><use href="#i-check"/></svg><span>Tests passing</span></div><span class="vt-v" id="t-tests">&nbsp;</span><span class="vt-s" id="t-tests-s"></span></div>
+        <div class="vt"><div class="vt-h"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg><span>Signed replies</span></div><span class="vt-v" id="t-sigs">&nbsp;</span><span class="vt-s" id="t-sigs-s"></span></div>
+      </div>
+      <div class="sp-fill">
+        <ol id="steps" class="steps" hidden></ol>
+        <p id="run-error" class="err" role="alert" hidden></p>
+        <ul id="proof" class="proof"></ul>
+        <div class="actions">
+          <button type="button" class="btn ghost" id="tamper">Flip one byte in a reply</button>
+          <button type="button" class="btn ghost" id="fresh">Check again</button>
+          <button type="button" class="btn ghost" id="download"><svg class="ic sm" aria-hidden="true"><use href="#i-down"/></svg>Receipt</button>
+          <a class="btn ghost" href="#diff-card">See the diff</a>
+        </div>
+      </div>
+    </div>
+    <div id="stage-models" hidden>
+      <h2 class="sp-k"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg><span>NEAR AI Cloud models by protection</span><span class="grow"></span><span id="scan-sum" class="hint" role="status"></span></h2>
+      <div class="scroll fillscroll" tabindex="0" role="region" aria-label="NEAR AI models by protection, scrolls">
+        <table class="tbl" id="models-t"><thead><tr><th scope="col">Model</th><th scope="col">Protection</th><th scope="col">What NEAR AI reports</th></tr></thead><tbody><tr><td colspan="3" class="muted">Press Check every model now.</td></tr></tbody></table>
+      </div>
+    </div>
   </div>
 </section>
 
-<section id="p-run" role="tabpanel" aria-labelledby="tab-run" class="card">
-  <div class="grid2">
-    <label class="field"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-key"/></svg>NEAR AI key</span>
-      <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-...">
-      <span class="hint"><a href="https://cloud.near.ai" target="_blank" rel="noopener">Get a key</a> · <a href="https://nearbuilders.org/join" target="_blank" rel="noopener">$10 free credits</a> · <label class="inline"><input type="checkbox" id="remember"> Remember on this device</label></span>
-    </label>
-    <label class="field"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg>Enclave model</span>
-      <select id="model"><option value="Qwen/Qwen3.8-27B">Qwen/Qwen3.8-27B</option></select>
-      <span class="hint" id="model-hint">Only models that run in their own TEE are listed.</span>
-    </label>
-  </div>
-
-  <label class="field"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-doc"/></svg>System prompt <button type="button" class="link" id="load-sample">Load the sample</button></span>
-    <textarea id="prompt" rows="10" spellcheck="false"></textarea>
-    <span class="hint" id="prompt-count"></span>
-  </label>
-
-  <div class="field"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-check"/></svg>Test cases <span class="sub">Both prompts answer each message. Separate alternatives with |.</span></span>
-    <div id="tests" class="tests"></div>
-    <button type="button" class="btn ghost" id="add-test">Add a test case</button>
-  </div>
-
-  <div class="grid2">
-    <label class="field"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-coin"/></svg>Model you deploy with</span>
-      <select id="deploy"><option value="">Loading prices</option></select>
-    </label>
-    <label class="field"><span class="lbl"><svg class="ic sm" aria-hidden="true"><use href="#i-list"/></svg>Calls per month</span>
-      <input type="number" id="calls" min="1" step="1000" value="1000000" inputmode="numeric">
-    </label>
-  </div>
-
-  <div class="runrow">
-    <button type="button" class="btn primary" id="run"><svg class="ic sm" aria-hidden="true"><use href="#i-play"/></svg>Optimise in the enclave</button>
-    <p class="privacy">Your key and prompt go from this browser straight to cloud-api.near.ai. Only the public attestation evidence passes through prompt20.com, to reach Intel's and NVIDIA's verifiers.</p>
-  </div>
-  <ol id="steps" class="steps" hidden></ol>
-  <p id="run-error" class="err" role="alert" hidden></p>
-</section>
-
-<section id="p-check" role="tabpanel" aria-labelledby="tab-check" class="card" hidden>
-  <p class="body">A receipt holds the exact bytes of every request and reply, their signatures and the hardware attestation. Checking one needs no key.</p>
-  <div class="runrow">
-    <button type="button" class="btn primary" id="check-sample"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg>Check the recorded sample run</button>
-    <label class="btn ghost file">Open a receipt file<input type="file" id="receipt-file" accept="application/json,.json"></label>
-  </div>
-  <p class="hint">The sample used the fictional Northwind Pay prompt below and ran on <span id="sample-date">NEAR AI Cloud</span>.</p>
-  <p id="check-error" class="err" role="alert" hidden></p>
-</section>
-
-<section id="p-models" role="tabpanel" aria-labelledby="tab-models" class="card" hidden>
-  <p class="body">NEAR AI Cloud serves open models inside its own TEEs and passes some others to outside providers. This asks NEAR AI for every model's attestation, live, with no key.</p>
-  <div class="runrow"><button type="button" class="btn primary" id="scan"><svg class="ic sm" aria-hidden="true"><use href="#i-chip"/></svg>Check every model now</button><p class="hint" id="scan-sum" role="status" aria-live="polite"></p></div>
-  <div class="scroll" tabindex="0" role="region" aria-label="NEAR AI models by protection, scrolls horizontally">
-    <table class="tbl" id="models-t"><thead><tr><th scope="col">Model</th><th scope="col">Protection</th><th scope="col">What NEAR AI reports</th></tr></thead><tbody><tr><td colspan="3" class="muted">Press the button to check.</td></tr></tbody></table>
-  </div>
-</section>
-
-<section id="results" class="results" hidden aria-live="polite">
-  <div id="verdict" class="verdict"></div>
-  <div class="tiles">
-    <div class="tile"><span class="th"><svg class="ic sm" aria-hidden="true"><use href="#i-scissors"/></svg>Input tokens per call</span><span class="tv" id="t-tokens"></span><span class="ts" id="t-tokens-s"></span></div>
-    <div class="tile"><span class="th"><svg class="ic sm" aria-hidden="true"><use href="#i-coin"/></svg>Saving per month</span><span class="tv" id="t-cost"></span><span class="ts" id="t-cost-s"></span></div>
-    <div class="tile"><span class="th"><svg class="ic sm" aria-hidden="true"><use href="#i-check"/></svg>Tests passing</span><span class="tv" id="t-tests"></span><span class="ts" id="t-tests-s"></span></div>
-    <div class="tile"><span class="th"><svg class="ic sm" aria-hidden="true"><use href="#i-shield"/></svg>Signed replies</span><span class="tv" id="t-sigs"></span><span class="ts" id="t-sigs-s"></span></div>
-  </div>
-
-  <section class="card"><h2><svg class="ic" aria-hidden="true"><use href="#i-doc"/></svg>Original and optimised</h2>
+<div class="pl">
+<p id="check-error" class="err" role="alert" hidden></p>
+<section id="results" hidden>
+  <section class="card" id="diff-card"><h2><svg class="ic" aria-hidden="true"><use href="#i-doc"/></svg>Original and optimised</h2>
     <div class="diff"><div><h3>Original</h3><div class="dtext" id="d-old"></div></div><div><h3>Optimised</h3><div class="dtext" id="d-new"></div></div></div>
     <div class="actions"><button type="button" class="btn ghost" id="copy-opt">Copy the optimised prompt</button></div>
   </section>
-
   <section class="card"><h2><svg class="ic" aria-hidden="true"><use href="#i-scissors"/></svg>What changed</h2>
     <div class="grid2"><div><h3>Cuts</h3><ul id="changes" class="plain"></ul></div><div><h3>Rules the model says it kept</h3><ul id="kept" class="plain"></ul></div></div>
   </section>
-
   <section class="card"><h2><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Test cases</h2>
     <div class="scroll" tabindex="0" role="region" aria-label="Test results, scrolls horizontally"><table class="tbl tests-t" id="tests-t"><thead><tr><th scope="col">Message</th><th scope="col">Original prompt</th><th scope="col">Optimised prompt</th></tr></thead><tbody></tbody></table></div>
   </section>
-
-  <section class="card"><h2><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>Proof</h2>
-    <ul id="proof" class="proof"></ul>
+  <section class="card"><h2><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>Reply signatures</h2>
     <div class="scroll" tabindex="0" role="region" aria-label="Reply signatures, scrolls horizontally"><table class="tbl" id="sigs-t"><thead><tr><th scope="col">Call</th><th scope="col">Signed text matches the bytes</th><th scope="col">Signer</th><th scope="col">Result</th></tr></thead><tbody></tbody></table></div>
-    <div class="actions">
-      <button type="button" class="btn ghost" id="tamper">Flip one byte in a reply</button>
-      <button type="button" class="btn ghost" id="fresh">Check again</button>
-      <button type="button" class="btn ghost" id="download"><svg class="ic sm" aria-hidden="true"><use href="#i-down"/></svg>Download the receipt</button>
-    </div>
     <p class="hint" id="compose"></p>
   </section>
 </section>
@@ -163,5 +165,6 @@
   <div><h3>Can I check a receipt without this page?</h3><p>Yes. The <a href="https://github.com/edwardtay/private-prompt-lab" rel="noopener">source and a command-line verifier</a> are public: <code>npm run verify</code> checks the sample receipt, asking Intel, NVIDIA and NEAR AI again.</p></div>
 </section>
 <footer><a href="/tools/">More Prompt20 tools</a> · <a href="/tools/cost/">AI Cost Calculator</a> · <a href="/tools/models/">Model Hub</a> · <a href="https://github.com/edwardtay/private-prompt-lab" rel="noopener">Source</a></footer>
+</div>
 </main>
 </body></html>
