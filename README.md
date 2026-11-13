@@ -56,7 +56,7 @@ Steps 1 to 4 must pass before anything is sent. Steps 5 and 6 check the reply. A
 
 ## What code is running
 
-Attestation usually stops at "an enclave app with this hash". The lab follows the chain down to the inference engine, and every link is checked in the page and by `npm run verify`:
+Attestation usually stops at "an enclave app with this hash". The lab follows the chain down to the inference engine. Every link below is checked in the page and by `npm run verify`. The compose file is part of the **Verified** verdict; the deploy log, the public deploy file and the gateway are shown as their own results, and a failure there turns its own row red without changing the verdict:
 
 1. **Compose file.** The enclave's `app_compose` hashes to the value in the quote's MRCONFIGID (`01 || sha256`) and to the compose-hash event replayed into RTMR3. It pins NEAR AI's `compose-manager` image by digest.
 2. **Deploy log.** The compose manager starts the model containers at runtime and logs every action. The page hashes the log (canonical JSON, as NEAR AI's [inference-sdk](https://github.com/nearai/inference-sdk) does) and finds that hash with this run's nonce in a second TDX quote, from the same VM (same MRTD and RTMR0 to RTMR3). Intel's DCAP check runs on that quote too.
@@ -88,9 +88,9 @@ When you ask privately, a second encrypted, signed call asks the enclave model t
 
 We did not use NEAR AI's `/v1/privacy/classify` endpoint for this, though it runs `openai/privacy-filter` in a TEE: it does not accept E2EE (we sent an encrypted input and it scanned the ciphertext), so a live message would reach the gateway in plaintext.
 
-## Paid with NEAR staking
+## Cost, and paying it with NEAR staking
 
-This is where NEAR fits beyond the enclaves: private inference runs on NEAR AI Cloud, and its credits can be paid by NEAR staking rewards. Each run shows its cost in NEAR AI credits, from the real token usage and NEAR AI's published model prices (the sample question cost $0.0024 for 2 calls). NEAR AI's [Staking for Inference](https://docs.near.ai/cloud/staking-for-inference/overview) lets NEAR staking rewards pay those credits while the stake stays yours.
+This is where NEAR fits beyond the enclaves: private inference runs on NEAR AI Cloud, and its credits can be paid by NEAR staking rewards. Each run shows its cost in NEAR AI credits, from the real token usage and NEAR AI's published model prices (the sample question cost $0.0024 for 2 calls). NEAR AI's [Staking for Inference](https://docs.near.ai/cloud/staking-for-inference/overview) lets NEAR staking rewards pay those credits while the stake stays yours. That is set up on NEAR AI's side; Off Record shows the cost and links to it, and runs no staking flow itself.
 
 ## Findings for the NEAR AI team
 
@@ -161,6 +161,9 @@ NEARAI_KEY=sk-... npm run capture   # record a new two-turn chat into web/sample
 - The model weights are named by a label in NEAR AI's deploy file. The engine image is pinned, but the weights themselves are not measured.
 - The app id is checked against the app NEAR AI serves today, through NEAR AI's own attestation endpoint. Judging that app's compose file (what code it runs) is NEAR AI's published deployment; the page shows the compose hash so you can compare it in NEAR AI's Verification Center.
 - The CPU quote and the GPU evidence are tied together by the shared nonce, as in NEAR AI's own verifier. Neither vendor attests that link directly.
+- NVIDIA's per-GPU tokens are checked against the overall result: each one's sha256 must match its digest in `submods`, and each must carry the run's nonce.
+- Intel TCB statuses `SWHardeningNeeded` and `ConfigurationNeeded` are accepted, and their advisory IDs are shown in the proof panel. The page cannot confirm the platform applied those mitigations.
+- The page does not pin an approved app or compose hash of its own. It checks that the enclave app is the one NEAR AI serves for the model today, so a deployment NEAR AI itself changed would still pass.
 
 ## NEAR HACKATHON
 

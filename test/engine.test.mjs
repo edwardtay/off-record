@@ -198,3 +198,42 @@ test('chat: a flipped byte in a streamed reply breaks its signature', async () =
   const v = await offline(rc);
   assert.equal(v.calls.find((x) => x.role === 'turn-1').ok, false);
 });
+
+// NVIDIA's answer, signed here with a test key standing in for NVIDIA's. The per-GPU tokens must be the
+// ones the overall token names (sha256 digests in `submods`) and carry its nonce.
+test('NVIDIA: GPU tokens must be bound to the overall result', async () => {
+  const { vendorChecks, sha256Hex } = await import('../web/engine.js');
+  const { subtle } = globalThis.crypto;
+  const kp = await subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-384' }, true, ['sign', 'verify']);
+  const jwk = { ...(await subtle.exportKey('jwk', kp.publicKey)), kid: 'test' };
+  const b64u = (b) => Buffer.from(b).toString('base64url');
+  const sign = async (claims) => {
+    const h = b64u(JSON.stringify({ alg: 'ES384', kid: 'test' })); const p = b64u(JSON.stringify(claims));
+    const s = await subtle.sign({ name: 'ECDSA', hash: 'SHA-384' }, kp.privateKey, new TextEncoder().encode(`${h}.${p}`));
+    return `${h}.${p}.${b64u(s)}`;
+  };
+  const base = { iss: 'https://nras.attestation.nvidia.com', exp: Math.floor(Date.now() / 1000) + 600 };
+  const N = 'aa'.repeat(32);
+  const gpu = (nonce) => sign({ ...base, eat_nonce: nonce, dbgstat: 'disabled', secboot: true });
+  const bundle = async (tokens, digestOf = tokens) => {
+    const submods = {}; for (const [k, t] of Object.entries(digestOf)) submods[k] = ['DIGEST', ['SHA-256', await sha256Hex(t)]];
+    return [['JWT', await sign({ ...base, eat_nonce: N, 'x-nvidia-overall-att-result': true, submods })], tokens];
+  };
+  const run = async (j) => {
+    const deps = {
+      gpuUrl: 'nras', jwksUrl: 'jwks', pcsUrl: () => 'pcs',
+      fetch: async (u) => u === 'jwks' ? { json: async () => ({ keys: [jwk] }) }
+        : u === 'nras' ? { status: 200, json: async () => j } : { ok: false, status: 404, headers: new Headers() },
+    };
+    return (await vendorChecks({ intel_quote: '00', nvidia_payload: '{}' }, deps)).gpu;
+  };
+  const good = { 'GPU-0': await gpu(N), 'GPU-1': await gpu(N) };
+  const ok = await run(await bundle(good));
+  assert.ok(ok.verified && ok.bound && ok.noDebug, 'a bound bundle passes');
+
+  const other = { 'GPU-0': await gpu(N), 'GPU-1': await gpu(N) }; // validly signed, but not the tokens the overall names
+  assert.equal((await run(await bundle(other, good))).verified, false, 'swapped GPU tokens are refused');
+  const stale = { 'GPU-0': await gpu('bb'.repeat(32)), 'GPU-1': await gpu(N) };
+  assert.equal((await run(await bundle(stale))).verified, false, 'a GPU token with another nonce is refused');
+  assert.equal((await run(await bundle({ 'GPU-0': good['GPU-0'] }, good))).verified, false, 'a dropped GPU is refused');
+});

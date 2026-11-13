@@ -161,10 +161,22 @@ export async function vendorChecks(m, deps) {
     const [j, jwks] = await Promise.all([postJson(deps, deps.gpuUrl, m.nvidia_payload), deps.fetch(deps.jwksUrl || NRAS_JWKS).then((r) => r.json())]);
     // Every token NVIDIA returns (the platform result and one per GPU) must carry NVIDIA's signature.
     const overall = Array.isArray(j) && Array.isArray(j[0]) ? await verifyNvidiaJwt(j[0][1], jwks) : { ok: false };
-    const gpuTokens = j && typeof j[1] === 'object' ? await Promise.all(Object.values(j[1]).map((t) => verifyNvidiaJwt(t, jwks))) : [];
+    const detached = j && j[1] && typeof j[1] === 'object' ? Object.entries(j[1]) : [];
+    const gpuTokens = await Promise.all(detached.map(([, t]) => verifyNvidiaJwt(t, jwks)));
     const claims = overall.claims || {};
+    // The per-GPU tokens must be the ones the overall result names: the same GPUs, each token's sha256
+    // equal to its digest in `submods`, and each token carrying the overall token's nonce.
+    const submods = claims.submods && typeof claims.submods === 'object' ? claims.submods : {};
+    const digests = await Promise.all(detached.map(([, t]) => sha256Hex(String(t))));
+    const bound = detached.length > 0 && Object.keys(submods).length === detached.length
+      && detached.every(([name], i) => {
+        const s = submods[name];
+        return Array.isArray(s) && s[0] === 'DIGEST' && Array.isArray(s[1]) && s[1][0] === 'SHA-256' && String(s[1][1]).toLowerCase() === digests[i];
+      })
+      && gpuTokens.every((g) => typeof claims.eat_nonce === 'string' && g.claims?.eat_nonce === claims.eat_nonce);
     out.gpu = {
-      verified: overall.ok && gpuTokens.length > 0 && gpuTokens.every((g) => g.ok) && claims['x-nvidia-overall-att-result'] === true,
+      verified: overall.ok && bound && gpuTokens.length > 0 && gpuTokens.every((g) => g.ok) && claims['x-nvidia-overall-att-result'] === true,
+      bound,
       signed: overall.ok && gpuTokens.every((g) => g.ok),
       nonce: claims.eat_nonce || null,
       gpus: gpuTokens.length,
@@ -198,7 +210,7 @@ export async function checkAttestation(report, nonce, model, vendor, live) {
   rows.push({ id: 'intel-sig', label: 'Intel\'s signature on the quote checks out, here', ok: dcap.ok, detail: dcap.ok ? `signed by Intel's TDX quoting enclave; PCK certificate chain to Intel's pinned root key, checked here with no verifier service` : `failed: ${failedSteps.join(', ') || dcap.error}` });
   const t = vendor?.tdx;
   rows.push({ id: 'intel', label: 'Intel lists the platform as trusted and not revoked', ok: !!t?.verified, unreachable: !!t?.unreachable, detail: t?.error || `TCB ${t?.status} (Intel TCB evaluation ${t?.evaluation})${t?.advisories?.length ? `, advisories ${t.advisories.join(', ')}` : ''}; PCK certificate and CA not revoked; quoting enclave matches Intel's identity. Intel-signed collateral, checked here` });
-  rows.push({ id: 'nvidia', label: 'NVIDIA attests the GPUs', ok: !!vendor?.gpu?.verified && strip0x(vendor.gpu.nonce) === strip0x(nonce) && vendor.gpu.noDebug, unreachable: !!vendor?.gpu?.unreachable, detail: vendor?.gpu?.error || `${vendor?.gpu?.gpus || 0} GPU${vendor?.gpu?.gpus === 1 ? '' : 's'}, each token's NVIDIA signature checked here, this nonce, debug off, secure boot on` });
+  rows.push({ id: 'nvidia', label: 'NVIDIA attests the GPUs', ok: !!vendor?.gpu?.verified && strip0x(vendor.gpu.nonce) === strip0x(nonce) && vendor.gpu.noDebug, unreachable: !!vendor?.gpu?.unreachable, detail: vendor?.gpu?.error || `${vendor?.gpu?.gpus || 0} GPU${vendor?.gpu?.gpus === 1 ? '' : 's'}, each token's NVIDIA signature checked here and bound to the overall result, this nonce, debug off, secure boot on` });
   if (live) {
     const sameApp = !!live.app?.ok && live.app.appId === app.appId;
     rows.push({ id: 'same-app', label: 'NEAR AI reports the same enclave app for this model today', ok: sameApp, unreachable: !!live.unreachable, detail: live.unreachable ? 'NEAR AI attestation unreachable' : sameApp ? `app ${app.appId}${live.app.composeHash === app.composeHash ? ', same compose hash' : `, today's instance reports compose hash ${String(live.app.composeHash).slice(0, 16)}...`}` : `today NEAR AI serves app ${live.app?.appId || 'unknown'}` });

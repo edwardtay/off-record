@@ -2,7 +2,7 @@
    encrypted in this page to the key named in the enclave's hardware quote, every reply is signed by
    that key, and every check is shown. All checks live in engine.js, shared with the Node verifier.
    Imports carry the release tag so a deploy never mixes a cached old module with new ones. */
-import { openSession, newReceipt, sendTurn, checkTurns, turnMessages, verifyReceipt, codeChecks, fetchAttestation, privacyKind, newNonce, modelAttestation, callUsage, runAsk, NEARAI, DEFAULT_MODEL } from './engine.js?v=21';
+import { openSession, newReceipt, sendTurn, checkTurns, turnMessages, verifyReceipt, codeChecks, fetchAttestation, privacyKind, newNonce, modelAttestation, callUsage, runAsk, NEARAI, DEFAULT_MODEL } from './engine.js?v=22';
 import { SAMPLE_ASK } from './sample.js?v=20';
 
 const $ = (id) => document.getElementById(id);
@@ -300,13 +300,18 @@ function userHtml(text) {
   const files = []; const body = String(text).replace(ATTACH_RE, (_, name, t) => { files.push([name, t]); return ''; }).trim();
   return `${body ? `<div class="utext">${esc(body)}</div>` : ''}${files.map(([n, t]) => `<details class="afile"><summary>File: ${esc(n)} <span class="sub">${fmt(t.length)} characters</span></summary><pre>${esc(t)}</pre></details>`).join('')}`;
 }
+// A reply is Verified only when its own signature and the enclave proof (Intel, NVIDIA, compose file) both pass.
+const enclaveOk = (v) => !v?.att ? null : v.att.rows.every((r) => r.ok) && v.code?.compose?.ok === true;
 function badge(t, i) {
-  if (!t) return '<span class="vbtn">Checking</span>';
-  return `<button type="button" class="vbtn ${t.ok ? 'ok' : 'bad'}" data-turn="${i}" data-tip="${t.ok ? 'Signed by the enclave\'s key over the exact encrypted bytes. Click for the proof.' : 'This reply failed a check. Click for details.'}">${t.ok ? 'Verified' : 'Not verified'}</button>`;
+  const hw = enclaveOk(chat?.view);
+  if (!t || (t.ok && hw === null)) return '<span class="vbtn">Checking</span>';
+  const ok = t.ok && hw;
+  const tip = ok ? 'Signed by the enclave\'s key over the exact encrypted bytes. Click for the proof.' : t.ok ? 'The reply is signed, but the enclave proof did not pass. Click for details.' : 'This reply failed a check. Click for details.';
+  return `<button type="button" class="vbtn ${ok ? 'ok' : 'bad'}" data-turn="${i}" data-tip="${tip}">${ok ? 'Verified' : 'Not verified'}</button>`;
 }
 function renderThread() {
   const th = $('thread');
-  if (!chat?.rc?.turns?.length && !chat?.pending) { th.innerHTML = chat?.demo ? '' : `<div class="empty"><span class="logo big"><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg></span><h2>What do you want to keep off the record?</h2><p>Only a sealed enclave can read this chat. Every reply is checked before you see it.</p></div>`; renderStarters(); return; }
+  if (!chat?.rc?.turns?.length && !chat?.pending) { th.innerHTML = chat?.demo ? '' : `<div class="empty"><span class="logo big"><svg class="ic" aria-hidden="true"><use href="#i-lab"/></svg></span><h2>What do you want to keep off the record?</h2><p>Only a sealed enclave can read this chat. Every reply is checked as soon as it finishes.</p></div>`; renderStarters(); return; }
   const rows = [];
   const turns = chat.rc?.turns || [];
   turns.forEach((m, i) => {

@@ -62,4 +62,4 @@ createServer(async (req, res) => {
     }
     res.writeHead(404).end('not found');
   } catch (e) { res.writeHead(500).end(String(e.message || e)); }
-}).listen(PORT, () => console.log(`Off Record at http://localhost:${PORT}${BASE}`));
+}).listen(PORT, process.env.HOST || '127.0.0.1', () => console.log(`Off Record at http://localhost:${PORT}${BASE}`));
