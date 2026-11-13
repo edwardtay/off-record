@@ -11,6 +11,23 @@ A private AI chat where you can check the privacy yourself. Your message is lock
 
 **Live:** https://prompt20.com/tools/off-record/
 
+## For judges: 2 minutes
+
+[![test](https://github.com/edwardtay/off-record/actions/workflows/test.yml/badge.svg)](https://github.com/edwardtay/off-record/actions/workflows/test.yml)
+
+In the browser: open the [live page](https://prompt20.com/tools/off-record/) and wait for the **Verified** pill to turn green. Click it, then press each **Try to break it** button; each is refused and names the check that caught it.
+
+On the command line (Node 20+, no key needed):
+
+```
+npm install
+npm test               # 29 offline tests, all pass
+npm run verify         # asks Intel, NVIDIA and NEAR AI now about the recorded chat; ends with VERIFIED
+npm run tamper         # flips one byte of a signed reply; signature, decryption and chat checks FAIL; NOT VERIFIED
+npm run swap-message   # rewrites an earlier message; "The chat shown is the one signed" FAILs; NOT VERIFIED
+npm run check-live     # hashes every file served at prompt20.com against web/; MATCH on each
+```
+
 ## Try it (no key, no sign-up)
 
 1. Open https://prompt20.com/tools/off-record/. The recorded demo chat re-checks itself live; the **Verified** pill at the top turns green.
