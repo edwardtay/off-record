@@ -10,13 +10,21 @@ const ROOT = new URL('../web/', import.meta.url).pathname;
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 const walk = (d) => readdirSync(d).flatMap((f) => (statSync(join(d, f)).isDirectory() ? walk(join(d, f)) : [join(d, f)]));
 
+// The page loads its modules with a version query (lab.js?v=24), and that exact URL is what browsers run,
+// so each file is fetched at the version this checkout's page and modules reference.
+const files = walk(ROOT).sort();
+const version = {};
+for (const f of files.filter((x) => /\.(html|js)$/.test(x))) {
+  for (const [, p, v] of readFileSync(f, 'utf8').matchAll(/["'](?:\.\/)?([\w./-]+\.(?:js|css))\?v=(\w+)["']/g)) version[p] = v;
+}
+
 let bad = 0; let gone = 0;
-for (const file of walk(ROOT).sort()) {
+for (const file of files) {
   const path = relative(ROOT, file);
   const local = sha(readFileSync(file));
   let live = 'unreachable';
   try {
-    const r = await fetch(BASE + path, { headers: { 'cache-control': 'no-cache' } });
+    const r = await fetch(BASE + path + (version[path] ? `?v=${version[path]}` : ''), { headers: { 'cache-control': 'no-cache' } });
     live = r.ok ? sha(Buffer.from(await r.arrayBuffer())) : `HTTP ${r.status}`;
   } catch { /* stays unreachable */ }
   const ok = live === local;
