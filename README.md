@@ -20,6 +20,8 @@ In the browser: open the [live page](https://prompt20.com/tools/off-record/) and
 On the command line (Node 20+, no key needed):
 
 ```
+git clone https://github.com/edwardtay/off-record.git
+cd off-record
 npm install
 npm test               # 29 offline tests, all pass
 npm run verify         # asks Intel, NVIDIA and NEAR AI now about the recorded chat; ends with VERIFIED
@@ -58,7 +60,7 @@ No message content, in readable form or otherwise. The page is static files; sav
 | NEAR AI's gateway | Ciphertext and metadata | Each message is encrypted to the enclave key. The gateway still sees the model, sizes, timing and your API key. |
 | The enclave | Plaintext | Only the holder of the key named in the hardware quote, with this run's nonce, can decrypt. |
 
-Click any party to see exactly what it sees, including the real request body the gateway received. A fifth box, **A standard AI API**, shows the same message in the usual request format with its sensitive items highlighted. One line sums it up: for the sample, **0 of 7 sensitive items readable in transit here, 7 of 7 with a standard AI API**. Metadata (model, sizes, timing, IP, API key) is visible either way. In our browser tests, no encrypted chat request contained any of the message's text.
+Click any party to see exactly what it sees, including the real request body the gateway received. A fifth box, **A standard AI API**, shows the same message in the usual request format with its sensitive items highlighted. One line sums it up: for the sample, **0 of 8 sensitive items readable in transit here, 8 of 8 with a standard AI API**. Metadata (model, sizes, timing, IP, API key) is visible either way. In our browser tests, no encrypted chat request contained any of the message's text.
 
 ## The send gate
 
@@ -85,7 +87,7 @@ On 2026-11-11 all five private chat models (Qwen3.8-27B, Qwen3.6-35B, Qwen3-VL-3
 
 ## Chat receipts
 
-A chat receipt holds the attestation (with this chat's nonce), the instructions, each message, and every call's exact request and response bytes with the one-time secrets that open them. Turn *i* is checked to have sent exactly the instructions, every earlier message and its signed reply, and message *i*, all encrypted to the attested key. A rewritten earlier message, a dropped turn or a flipped byte in a streamed reply is refused (`npm test` covers each). Streamed replies are signed too: NEAR AI's signature covers `sha256` of the whole event stream, which the page keeps byte for byte. Stopping a reply discards that turn, so a receipt never holds an unsigned answer.
+A chat receipt holds the attestation (with this chat's nonce), the instructions, each message, and every call's exact request and response bytes with the one-time secrets that open them. Turn *i* is checked to have sent exactly the instructions, every earlier message and its signed reply, and message *i*, all encrypted to the attested key. A rewritten earlier message, a dropped turn or a flipped byte in a streamed reply is refused (`npm test` covers each). Streamed replies are signed too: NEAR AI's signature covers `sha256` of the whole event stream, which the page keeps byte for byte. Stopping a reply discards that turn. A reply without a valid signature cannot receive a Verified badge.
 
 ## Try to break it
 
@@ -101,13 +103,13 @@ The page runs five attacks against the real checks. Each is refused, and the gat
 
 ## Sensitive items, found inside the enclave
 
-When you ask privately, a second encrypted, signed call asks the enclave model to list the sensitive items in your message (names, ages, health data, medications, IDs and so on). The page keeps only items that appear verbatim in the message, highlights them in every view, and counts them on the meter: for the sample, **0 of 7 readable here, 7 of 7 in a standard API** (a name, an age, four lab values, a medication).
+When you ask privately, a second encrypted, signed call asks the enclave model to list the sensitive items in your message (names, ages, health data, medications, IDs and so on). The page keeps only items that appear verbatim in the message, highlights them in every view, and counts them on the meter: for the sample, **0 of 8 readable here, 8 of 8 in a standard API** (a name, an age, four health values and a medication in the first message, and the medication again in the follow-up).
 
 We did not use NEAR AI's `/v1/privacy/classify` endpoint for this, though it runs `openai/privacy-filter` in a TEE: it does not accept E2EE (we sent an encrypted input and it scanned the ciphertext), so a live message would reach the gateway in plaintext.
 
 ## Cost, and paying it with NEAR staking
 
-This is where NEAR fits beyond the enclaves: private inference runs on NEAR AI Cloud, and its credits can be paid by NEAR staking rewards. Each run shows its cost in NEAR AI credits, from the real token usage and NEAR AI's published model prices (the sample question cost $0.0024 for 2 calls). NEAR AI's [Staking for Inference](https://docs.near.ai/cloud/staking-for-inference/overview) lets NEAR staking rewards pay those credits while the stake stays yours. That is set up on NEAR AI's side; Off Record shows the cost and links to it, and runs no staking flow itself.
+This is where NEAR fits beyond the enclaves: private inference runs on NEAR AI Cloud, and its credits can be paid by NEAR staking rewards. Each run shows its cost in NEAR AI credits, from the real token usage and NEAR AI's published model prices. NEAR AI's [Staking for Inference](https://docs.near.ai/cloud/staking-for-inference/overview) lets NEAR staking rewards pay those credits while the stake stays yours. That is set up on NEAR AI's side; Off Record shows the cost and links to it, and runs no staking flow itself.
 
 ## Findings for the NEAR AI team
 
@@ -136,7 +138,7 @@ Node 20 or later.
 
 ```sh
 npm install
-npm test                # 25 offline tests, run in CI: the recorded run, the attacks, Intel collateral
+npm test                # 29 offline tests, run in CI: the recorded run, the attacks, Intel collateral
 npm run check-live      # the live page's files match this checkout, file by file
 npm run verify          # the recorded two-turn chat, no key: asks Intel, NVIDIA and NEAR AI now
 npm run tamper          # flip one byte in the reply first: prints NOT VERIFIED and exits 1
